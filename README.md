@@ -172,10 +172,15 @@ Ask a question about your own data, or generate a weekly portrait, a pattern sea
 deep dive. The model reads your entries from the local database and runs on your GPU — nothing is
 uploaded, and the app works exactly the same with the network off.
 
+It is written to be specific rather than reassuring: it cites the actual figures, says plainly when
+a day went badly instead of smoothing it over, points out one connection worth your attention, and
+ends with a single concrete thing to try.
+
 <p align="center">
   <img src="docs/images/desktop-insights.png" alt="The Insights page showing an AI-written weekly portrait generated from the local database" width="90%">
 </p>
-<p align="center"><sub>A weekly portrait generated from nine weeks of entries by Qwen3-4B running on-device.</sub></p>
+<p align="center"><sub>A weekly portrait written by Qwen3-4B on-device — here it ties a 180 ml water
+day to the tiredness logged that evening, and a drop in energy to a short night's sleep.</sub></p>
 
 ---
 
