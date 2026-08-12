@@ -17,6 +17,13 @@ interface HobbyDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(hobby: HobbyEntity)
 
+    /**
+     * Non-suspending insert for the sync path: the WebSocket listener delivers
+     * frames on OkHttp's reader thread, which is not a coroutine scope.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(hobby: HobbyEntity)
+
     @Query("SELECT * FROM hobbies ORDER BY name ASC")
     fun getAllSync(): List<HobbyEntity>
 

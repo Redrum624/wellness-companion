@@ -6,7 +6,10 @@ import android.net.nsd.NsdServiceInfo
 import android.util.Log
 import com.google.gson.Gson
 import com.wellnesscompanion.app.data.local.WellnessDatabase
+import com.wellnesscompanion.app.data.local.entity.ChoreTemplateEntity
 import com.wellnesscompanion.app.data.local.entity.EntryEntity
+import com.wellnesscompanion.app.data.local.entity.HobbyEntity
+import com.wellnesscompanion.app.data.local.entity.PersonEntity
 import com.wellnesscompanion.app.data.local.entity.SettingEntity
 import com.wellnesscompanion.app.util.nowMillis
 import kotlinx.coroutines.Dispatchers
@@ -170,6 +173,67 @@ class SyncManager @Inject constructor(
         }
     }
 
+    /**
+     * Store the hobby / person / chore-template lists the desktop sends back.
+     * Room's REPLACE conflict strategy makes this idempotent, and each row is
+     * skipped rather than aborting the batch if it is malformed.
+     */
+    private fun ingestAux(msg: JSONObject) {
+        msg.optJSONArray("hobbies")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isBlank()) continue
+                runCatching {
+                    db.hobbyDao().insertSync(
+                        HobbyEntity(
+                            id = id,
+                            name = o.optString("name"),
+                            color = o.optString("color", "#F0997B"),
+                            createdAt = o.optLong("created_at", nowMillis())
+                        )
+                    )
+                }.onFailure { Log.e(TAG, "hobby ingest failed", it) }
+            }
+        }
+
+        msg.optJSONArray("people")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isBlank()) continue
+                runCatching {
+                    db.personDao().insertSync(
+                        PersonEntity(
+                            id = id,
+                            name = o.optString("name"),
+                            createdAt = o.optLong("created_at", nowMillis())
+                        )
+                    )
+                }.onFailure { Log.e(TAG, "person ingest failed", it) }
+            }
+        }
+
+        msg.optJSONArray("chore_templates")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isBlank()) continue
+                runCatching {
+                    db.choreTemplateDao().insertSync(
+                        ChoreTemplateEntity(
+                            id = id,
+                            name = o.optString("name"),
+                            category = o.optString("category").takeIf { it.isNotBlank() },
+                            recurrence = o.optString("recurrence").takeIf { it.isNotBlank() },
+                            createdAt = o.optLong("created_at", nowMillis())
+                        )
+                    )
+                }.onFailure { Log.e(TAG, "chore template ingest failed", it) }
+            }
+        }
+    }
+
     private suspend fun performFullSync(host: String, port: Int, token: String): String =
         withContext(Dispatchers.IO) {
             _status.value = SyncStatus.Syncing
@@ -288,6 +352,12 @@ class SyncManager @Inject constructor(
                                             )
                                         }
                                     }
+
+                                    // Auxiliary tables travelled phone -> desktop only: the
+                                    // desktop sends these back, but they used to be dropped on
+                                    // the floor here, so a freshly installed phone showed
+                                    // hobby/chore ENTRIES with an empty hobby and template list.
+                                    ingestAux(msg)
 
                                     val received = msg.optJSONObject("received")
                                     val theyInserted = received?.optInt("inserted") ?: 0

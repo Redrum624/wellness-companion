@@ -17,6 +17,13 @@ interface ChoreTemplateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(template: ChoreTemplateEntity)
 
+    /**
+     * Non-suspending insert for the sync path: the WebSocket listener delivers
+     * frames on OkHttp's reader thread, which is not a coroutine scope.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(template: ChoreTemplateEntity)
+
     @Query("SELECT * FROM chore_templates ORDER BY name ASC")
     fun getAllSync(): List<ChoreTemplateEntity>
 

@@ -17,6 +17,13 @@ interface PersonDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(person: PersonEntity)
 
+    /**
+     * Non-suspending insert for the sync path: the WebSocket listener delivers
+     * frames on OkHttp's reader thread, which is not a coroutine scope.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(person: PersonEntity)
+
     @Query("SELECT * FROM people ORDER BY name ASC")
     fun getAllSync(): List<PersonEntity>
 
