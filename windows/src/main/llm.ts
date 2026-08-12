@@ -17,7 +17,12 @@ const MODEL_FILE = 'Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gg
 function getModelPath(): string {
   // Check multiple candidate locations (AppData first — survives upgrades)
   const candidates = [
-    // Primary: AppData/Local (survives app upgrades)
+    // Primary: %LOCALAPPDATA%\wellness-companion\model\ — where the installer
+    // (installer\setup_model.ps1) puts it. Deliberately NOT userData: that
+    // resolves to %APPDATA% (Roaming) on Windows, and a 2.5 GB model must not
+    // live in a roaming profile.
+    join(process.env.LOCALAPPDATA || '', 'wellness-companion', 'model', MODEL_FILE),
+    // Legacy: the Roaming userData dir, for installs made before the move.
     join(app.getPath('userData'), 'model', MODEL_FILE),
     // Legacy: resources/model/ (old installs before AppData migration)
     join(process.resourcesPath, 'model', MODEL_FILE),

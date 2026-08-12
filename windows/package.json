@@ -1,6 +1,6 @@
 {
   "name": "wellness-companion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Daily Wellness Companion — Desktop Analysis Hub",
   "main": "./out/main/index.js",
   "author": "Redrum624",
@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "build:win": "electron-vite build && electron-builder --win",
+    "build:win": "electron-vite build && electron-builder --win --dir",
     "postinstall": "electron-builder install-app-deps",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
@@ -48,15 +48,9 @@
     },
     "win": {
       "target": [
-        "nsis"
+        "dir"
       ],
       "icon": "resources/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "WellnessCompanion-Setup.exe",
-      "include": "build/installer.nsh"
     }
   }
 }

@@ -50,7 +50,10 @@ export default function Sidebar() {
   return (
     <nav className="sidebar">
       <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <img src="./public/favicon.png" alt="" style={{ width: 22, height: 22 }} />
+        {/* Vite copies src/renderer/public/ to the output ROOT, so the runtime
+            path is ./favicon.png — "./public/favicon.png" only exists in source
+            and rendered as a broken image in the built app. */}
+        <img src="./favicon.png" alt="" style={{ width: 22, height: 22 }} />
         Wellness
       </div>
       {navItems.map((item) => (

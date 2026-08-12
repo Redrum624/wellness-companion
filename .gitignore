@@ -12,6 +12,7 @@ windows/dist/
 android/build/
 android/app/build/
 android/.gradle/
+installer/output/
 
 # --- Local machine config (contains local SDK paths) ---
 android/local.properties
@@ -28,3 +29,6 @@ logs/
 *.iml
 Thumbs.db
 Desktop.ini
+
+# --- Standalone ADB sideload bundle (superseded by the installer) ---
+/android_to_phone/
