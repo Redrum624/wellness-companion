@@ -171,6 +171,13 @@ Twelve categories, each with a dedicated screen on the phone and an equivalent p
 - **Windows SDK** (optional) — provides `signtool.exe` for Authenticode signing. Without it the
   build succeeds and the binaries are simply unsigned.
 
+> **Clone somewhere short**, e.g. `C:\dev\wellness-companion`. The Electron output nests
+> `node_modules` several levels deep inside `dist\win-unpacked\resources\app.asar.unpacked\`, and
+> Inno Setup is not manifested for long paths — so from a deeply-nested clone the installer step
+> aborts partway through with `The system cannot find the path specified`. Enabling Windows'
+> `LongPathsEnabled` does **not** help here. Measured: a clone at a 120-character path produced
+> 290-character file paths and failed; the same build at `C:\wcv` succeeded.
+
 **Downloads the build fetches for you**
 
 - `vc_redist.x64.exe` (~25 MB) from `aka.ms`, downloaded automatically if missing and embedded in
