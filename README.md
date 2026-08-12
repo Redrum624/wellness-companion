@@ -9,6 +9,22 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Redrum624/wellness-companion/releases/latest">
+    <img src="https://img.shields.io/badge/Download%20for%20Windows-2e7d5b?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="38">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Redrum624/wellness-companion/releases"><img src=".github/badges/downloads-badge.svg" alt="Total downloads"></a>
+  <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><img src=".github/badges/latest-badge.svg" alt="Latest release"></a>
+</p>
+
+<p align="center">
+  <sub>One installer — it carries the desktop app <em>and</em> the Android package.<br>
+  Want only the phone app? <a href="#get-the-apps">Build it in two commands.</a></sub>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Android%20%C2%B7%20Windows-8a7ea3">
   <img alt="Network" src="https://img.shields.io/badge/network-LAN%20only-2e7d5b">
@@ -59,24 +75,6 @@ and writes weekly summaries with a local LLM.
 | **Stack** | Kotlin · Jetpack Compose · Room | Electron · React · better-sqlite3 |
 | **Standalone?** | Yes, fully usable alone | Needs the phone for data |
 | **AI** | — | Qwen3-4B, runs locally |
-
----
-
-<p align="center">
-  <a href="https://github.com/Redrum624/wellness-companion/releases/latest">
-    <img src="https://img.shields.io/badge/Download%20for%20Windows-2e7d5b?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="38">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/Redrum624/wellness-companion/releases"><img src=".github/badges/downloads-badge.svg" alt="Total downloads"></a>
-  <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><img src=".github/badges/latest-badge.svg" alt="Latest release"></a>
-</p>
-
-<p align="center">
-  <sub>One installer — it carries the desktop app <em>and</em> the Android package.<br>
-  Want only the phone app? <a href="#get-the-apps">Build it in two commands.</a></sub>
-</p>
 
 ---
 
