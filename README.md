@@ -12,10 +12,6 @@
   <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Android%20%C2%B7%20Windows-8a7ea3">
   <img alt="Network" src="https://img.shields.io/badge/network-LAN%20only-2e7d5b">
-  <!-- Re-enable at publish; shields cannot read a repo that does not exist yet:
-  [![Downloads](https://img.shields.io/github/downloads/Redrum624/wellness-companion/total?label=downloads)](https://github.com/Redrum624/wellness-companion/releases)
-  [![Latest release](https://img.shields.io/github/v/release/Redrum624/wellness-companion)](https://github.com/Redrum624/wellness-companion/releases/latest)
-  -->
 </p>
 
 <p align="center">
@@ -67,9 +63,19 @@ and writes weekly summaries with a local LLM.
 ---
 
 <p align="center">
-  <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><strong>⬇&nbsp; Download the latest release</strong></a><br>
-  <sub>One Windows installer — it carries the desktop app and the Android package.<br>
-  Prefer just the phone app? <a href="#get-the-apps">Jump to install.</a></sub>
+  <a href="https://github.com/Redrum624/wellness-companion/releases/latest">
+    <img src="https://img.shields.io/badge/Download%20for%20Windows-2e7d5b?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="38">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Redrum624/wellness-companion/releases"><img src=".github/badges/downloads-badge.svg" alt="Total downloads"></a>
+  <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><img src=".github/badges/latest-badge.svg" alt="Latest release"></a>
+</p>
+
+<p align="center">
+  <sub>One installer — it carries the desktop app <em>and</em> the Android package.<br>
+  Want only the phone app? <a href="#get-the-apps">Build it in two commands.</a></sub>
 </p>
 
 ---

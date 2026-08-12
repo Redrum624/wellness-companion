@@ -56,6 +56,9 @@ async function sample(args) {
   data.samples = (data.samples || []).filter((s) => s.date !== today); // re-run same day = replace
   data.samples.push({ date: today, total, by_release });
   data.samples.sort((a, b) => a.date.localeCompare(b.date));
+  // Newest non-draft, non-prerelease tag, for the "latest" badge.
+  const published = releases.filter((r) => !r.draft && !r.prerelease);
+  if (published.length) data.latest_release = published[0].tag_name;
   fs.mkdirSync(path.dirname(args.data), { recursive: true });
   fs.writeFileSync(args.data, JSON.stringify(data, null, 2) + "\n");
   console.log(`sampled ${args.repo}: total=${total} releases=${releases.length} samples=${data.samples.length}`);
@@ -98,12 +101,54 @@ function render(args) {
   console.log(`rendered ${args.out} (${samples.length} samples, max=${max})`);
 }
 
+// One flat two-segment badge in the shields "for-the-badge" idiom (28px tall,
+// bold uppercase, letter-spaced). textLength pins the text to our estimated
+// width so font fallback differences cannot overflow the box.
+//
+// These are rendered into the repo rather than fetched from shields.io: a
+// shields badge pointed at this repo renders "repo not found" until the public
+// repo exists, and shields intermittently fails with GitHub token-pool errors.
+// The numbers are already in our sampled data, so we draw them ourselves.
+function badgeSvg(label, value, color) {
+  const H = 28, FS = 11, PADX = 12, LS = 1.5; // height, font-size, x-padding, letter-spacing
+  const width = (s) => Math.ceil(s.length * (FS * 0.68 + LS)) + PADX * 2;
+  const l = label.toUpperCase(), v = String(value).toUpperCase();
+  const lw = width(l), vw = width(v);
+  const text = (str, x, w) =>
+    `<text x="${x}" y="18.5" textLength="${w - PADX * 2}" lengthAdjust="spacingAndGlyphs" ` +
+    `font-family="Verdana,'DejaVu Sans',sans-serif" font-size="${FS}" font-weight="bold" ` +
+    `letter-spacing="${LS}" fill="#fff">${str}</text>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${lw + vw}" height="${H}" role="img" aria-label="${l}: ${v}">
+  <rect width="${lw}" height="${H}" fill="#555"/>
+  <rect x="${lw}" width="${vw}" height="${H}" fill="${color}"/>
+  ${text(l, PADX, lw)}
+  ${text(v, lw + PADX, vw)}
+</svg>
+`;
+}
+
+function badges(args) {
+  if (!args.data || !args["out-dir"]) throw new Error("badges needs --data file.json and --out-dir dir");
+  const data = loadData(args.data);
+  const samples = data.samples || [];
+  if (samples.length === 0) throw new Error(`no samples in ${args.data} — run sample first`);
+  const total = samples[samples.length - 1].total;
+  const tag = args.tag || data.latest_release || "unreleased";
+  fs.mkdirSync(args["out-dir"], { recursive: true });
+  const downloads = path.join(args["out-dir"], "downloads-badge.svg");
+  const latest = path.join(args["out-dir"], "latest-badge.svg");
+  fs.writeFileSync(downloads, badgeSvg("downloads", total.toLocaleString("en-US"), "#2e7d5b"));
+  fs.writeFileSync(latest, badgeSvg("latest", tag, "#8957e5"));
+  console.log(`rendered ${downloads} (${total}) and ${latest} (${tag})`);
+}
+
 (async () => {
   try {
     const args = parseArgs(process.argv.slice(2));
     if (args.cmd === "sample") await sample(args);
     else if (args.cmd === "render") render(args);
-    else throw new Error(`unknown command "${args.cmd ?? ""}" — use: sample | render`);
+    else if (args.cmd === "badges") badges(args);
+    else throw new Error(`unknown command "${args.cmd ?? ""}" — use: sample | render | badges`);
   } catch (err) {
     console.error(String((err && err.message) || err));
     process.exit(1);
