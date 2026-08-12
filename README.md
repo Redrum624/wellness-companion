@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <sub>One installer — it carries the desktop app <em>and</em> the Android package.<br>
-  Want only the phone app? <a href="#get-the-apps">Build it in two commands.</a></sub>
-</p>
-
-<p align="center">
   <a href="LICENSE"><img alt="License: PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Android%20%C2%B7%20Windows-8a7ea3">
   <img alt="Network" src="https://img.shields.io/badge/network-LAN%20only-2e7d5b">
@@ -113,6 +108,7 @@ routine amounts · star ratings, sliders and tag input with recall · a consiste
 system per category.
 
 ---
+
 ## The desktop hub
 
 <p align="center">
@@ -137,7 +133,6 @@ ends with a single concrete thing to try.
 day to the tiredness logged that evening, and a drop in energy to a short night's sleep.</sub></p>
 
 ---
-<a id="get-the-apps"></a>
 
 ## Get the apps
 
