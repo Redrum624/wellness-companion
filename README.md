@@ -9,12 +9,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Redrum624/wellness-companion/releases/latest">
-    <img src="https://img.shields.io/badge/Download%20for%20Windows-2e7d5b?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="38">
-  </a>
-</p>
-
-<p align="center">
   <a href="https://github.com/Redrum624/wellness-companion/releases"><img src=".github/badges/downloads-badge.svg" alt="Total downloads"></a>
   <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><img src=".github/badges/latest-badge.svg" alt="Latest release"></a>
 </p>
