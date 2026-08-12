@@ -23,18 +23,26 @@
 </p>
 
 ---
+
 ## Why this exists
 
-Wellness apps want your body in their cloud. Sleep, mood, menstrual cycle, symptoms, bathroom
-habits — the most personal data you generate, sitting on somebody else's server under somebody
-else's privacy policy, sold or breached on somebody else's timetable.
+Your sleep, your mood, your cycle, your symptoms. This is the most personal record you will ever
+keep — and here it stays on the devices you already own. Your phone holds it. Your PC holds a copy
+if you want a bigger screen. Nothing else holds it at all.
 
-This app is the other shape of that idea. Everything lives on **your** phone and, if you want it,
-**your** PC. The two talk directly to each other over your own Wi-Fi. There is no server to sign up
-to, because there is no server. The AI that summarises your week is a 4-billion-parameter model
-running on your own machine — your entries are never sent anywhere to be analysed.
+That is possible because there is nothing else: no account to create, no service to sign in to, no
+company sitting between you and your own history. The two apps talk straight to each other over
+your own Wi-Fi. Even the AI that writes your weekly summary is a 4-billion-parameter model running
+on your machine, reading a database on your own disk. Switch the network off and everything still
+works exactly the same.
 
-You give up cross-device magic and cloud backup. You get a health log nobody can read but you.
+Most trackers ask you to hand this material to a service instead — one whose privacy policy can be
+rewritten, whose database can be breached, and whose owners can change their minds about what your
+data is for. Wellness Companion can't do any of that to you. Not because it promises not to, but
+because it has nowhere to send anything.
+
+The trade is real and worth stating plainly: you give up cloud backup and syncing from anywhere. You
+get a health log nobody can read but you.
 
 ## What it is
 
