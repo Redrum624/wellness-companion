@@ -42,3 +42,6 @@ Desktop.ini
 android/keystore.properties
 *.jks
 *.keystore
+
+# --- TypeScript incremental build info ---
+*.tsbuildinfo

@@ -24,8 +24,12 @@ const HEARTBEAT_MS = 30_000
 const MAX_AUTH_ATTEMPTS = 5
 
 const TOKEN_SETTING_KEY = 'sync.pairing_token'
-/** No 0/O/1/I/L — the code is read off a screen and typed on a phone. */
-const TOKEN_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+/**
+ * Character set pairing codes are drawn FROM — not a secret itself. Excludes
+ * 0/O/1/I/L, which are the pairs people misread when copying a code off a
+ * screen onto a phone.
+ */
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789' // gitleaks:allow
 const TOKEN_LENGTH = 8
 
 interface PeerState {
@@ -82,7 +86,7 @@ export function getPairingToken(): string {
 
   let token = ''
   for (let i = 0; i < TOKEN_LENGTH; i++) {
-    token += TOKEN_ALPHABET[randomInt(TOKEN_ALPHABET.length)]
+    token += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]
   }
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
     TOKEN_SETTING_KEY,
