@@ -42,6 +42,10 @@ const syncApi = {
   getStatus: () => ipcRenderer.invoke('sync:getStatus'),
   getPort: () => ipcRenderer.invoke('sync:getPort'),
   getLocalIp: () => ipcRenderer.invoke('sync:getLocalIp'),
+  // The phone must present this code before any data moves in either direction.
+  getPairingToken: (): Promise<string> => ipcRenderer.invoke('sync:getPairingToken'),
+  regeneratePairingToken: (): Promise<string> =>
+    ipcRenderer.invoke('sync:regeneratePairingToken'),
   onStatusChange: (callback: (info: { status: string; detail?: string }) => void) => {
     const handler = (_event: any, info: any) => callback(info)
     ipcRenderer.on('sync:status', handler)

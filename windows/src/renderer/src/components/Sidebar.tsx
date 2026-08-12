@@ -7,6 +7,8 @@ declare global {
       getStatus: () => Promise<string>
       getPort: () => Promise<number>
       getLocalIp: () => Promise<string>
+      getPairingToken: () => Promise<string>
+      regeneratePairingToken: () => Promise<string>
       onStatusChange: (callback: (info: { status: string; detail?: string }) => void) => () => void
     }
   }
@@ -32,19 +34,28 @@ const navItems = [
 export default function Sidebar() {
   const [syncInfo, setSyncInfo] = useState('')
   const [syncDetail, setSyncDetail] = useState('')
+  const [pairingCode, setPairingCode] = useState('')
 
   useEffect(() => {
+    // `alive` guards against the promise resolving after unmount.
+    let alive = true
     Promise.all([
       window.sync.getLocalIp(),
-      window.sync.getPort()
-    ]).then(([ip, port]) => {
+      window.sync.getPort(),
+      window.sync.getPairingToken()
+    ]).then(([ip, port, token]) => {
+      if (!alive) return
       setSyncInfo(`${ip}:${port}`)
+      setPairingCode(token)
     })
 
     const unsub = window.sync.onStatusChange((info) => {
-      setSyncDetail(info.detail || info.status)
+      if (alive) setSyncDetail(info.detail || info.status)
     })
-    return unsub
+    return () => {
+      alive = false
+      unsub()
+    }
   }, [])
 
   return (
@@ -78,6 +89,19 @@ export default function Sidebar() {
           fontFamily: 'monospace', letterSpacing: '-0.3px'
         }}>
           {syncInfo || '...'}
+        </div>
+        {/* The phone must enter this code once. Nothing syncs without it. */}
+        <div style={{ fontSize: 10, color: '#3D326260', margin: '8px 0 2px' }}>Pairing code</div>
+        <div
+          title="Enter this code on your phone the first time you sync"
+          style={{
+            fontSize: 14, fontWeight: 700, color: '#3D3262',
+            background: 'rgba(255,255,255,0.35)', borderRadius: 8,
+            padding: '6px 10px', userSelect: 'text', cursor: 'text',
+            fontFamily: 'monospace', letterSpacing: '1.5px', textAlign: 'center'
+          }}
+        >
+          {pairingCode || '········'}
         </div>
         {syncDetail && (
           <div style={{ fontSize: 9, color: '#3D326250', marginTop: 3 }}>{syncDetail}</div>

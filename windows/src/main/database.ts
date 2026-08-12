@@ -12,6 +12,16 @@ export function initDatabase(): void {
   createTables()
 }
 
+/**
+ * The single shared connection. The sync server used to open its own handle per
+ * inbound message, which churned file handles against the WAL under load and
+ * left a close() on every error path.
+ */
+export function getDatabase(): Database.Database {
+  if (!db?.open) throw new Error('Database is not initialised')
+  return db
+}
+
 export function closeDatabase(): void {
   try {
     if (db?.open) db.close()

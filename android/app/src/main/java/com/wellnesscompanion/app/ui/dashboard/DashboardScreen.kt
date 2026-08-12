@@ -127,14 +127,68 @@ fun DashboardScreen(
                     is SyncStatus.Discovering -> "Searching..."
                     is SyncStatus.Connecting -> "Connecting..."
                     is SyncStatus.Syncing -> "Syncing..."
+                    is SyncStatus.NeedsPairing -> "Enter code"
                     is SyncStatus.Done -> "\u2705 Done"
                     is SyncStatus.Error -> "\u274C Error"
                 }
                 val syncDetail = when (syncStatus) {
                     is SyncStatus.Done -> (syncStatus as SyncStatus.Done).message
                     is SyncStatus.Error -> (syncStatus as SyncStatus.Error).message
+                    is SyncStatus.NeedsPairing ->
+                        "Enter the pairing code shown in the PC app's sidebar"
                     else -> null
                 }
+
+                // Pairing code. The PC refuses every request until this matches,
+                // so nothing leaves the phone before it is set.
+                val pairingCode by syncViewModel.pairingCode.collectAsState()
+                val isPaired by syncViewModel.isPaired.collectAsState()
+
+                Row(
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = pairingCode,
+                        onValueChange = { syncViewModel.setPairingCode(it) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.labelSmall.copy(
+                            color = GreetingColor,
+                            letterSpacing = 2.sp
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.25f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        decorationBox = { innerTextField ->
+                            if (pairingCode.isEmpty()) {
+                                Text(
+                                    "Pairing code from the PC",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = GreetingColor.copy(alpha = 0.4f)
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+
+                    Text(
+                        text = if (isPaired) "\u2713 Paired" else "Pair",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GreetingColor.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.35f))
+                            .clickable { syncViewModel.savePairingCode() }
+                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Row(
                     modifier = Modifier

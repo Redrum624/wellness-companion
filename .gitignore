@@ -37,3 +37,8 @@ Desktop.ini
 
 # --- /public-repo run state (go-public pipeline) ---
 /public-repo/
+
+# --- Android release signing (never commit signing material) ---
+android/keystore.properties
+*.jks
+*.keystore

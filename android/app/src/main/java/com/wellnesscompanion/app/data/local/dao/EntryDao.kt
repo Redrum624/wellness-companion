@@ -45,6 +45,17 @@ interface EntryDao {
     @Query("SELECT * FROM entries ORDER BY timestamp DESC")
     fun getAllEntriesSync(): List<EntryEntity>
 
+    /**
+     * Entries changed since the last successful sync, oldest first, capped.
+     * Sync used to load the whole table and build a full JSON graph of it in
+     * memory on every run, which grows without bound as the log fills up.
+     */
+    @Query("SELECT * FROM entries WHERE modified_at > :since ORDER BY modified_at ASC LIMIT :limit")
+    fun getModifiedSinceSync(since: Long, limit: Int): List<EntryEntity>
+
+    @Query("SELECT COUNT(*) FROM entries WHERE modified_at > :since")
+    fun countModifiedSinceSync(since: Long): Int
+
     @Query("SELECT * FROM entries WHERE id = :id")
     fun getByIdSync(id: String): EntryEntity?
 }

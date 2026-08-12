@@ -54,7 +54,11 @@ function broadcastStatus(newStatus: typeof status, errorDetail?: string): void {
 }
 
 async function loadModel(): Promise<void> {
-  if (model) return
+  // Both must be present. Guarding on `model` alone meant that if
+  // createContext() below threw, `model` stayed assigned with `context` null —
+  // every retry short-circuited here and chat() failed on a null context
+  // forever, with the multi-GB allocation still resident.
+  if (model && context) return
   broadcastStatus('loading')
   try {
     const modelPath = getModelPath()
@@ -92,9 +96,30 @@ async function loadModel(): Promise<void> {
   } catch (err: any) {
     const msg = err?.message || String(err)
     console.error('Failed to load LLM:', msg)
+    // Release whatever was allocated before the failure so the next attempt
+    // starts clean instead of inheriting a half-initialised runtime.
+    await releaseRuntime()
     if (status !== 'error') broadcastStatus('error', msg)
     throw err
   }
+}
+
+/**
+ * Dispose every native handle we may hold, each independently: a throw in one
+ * disposal must not skip the rest (the model is by far the largest allocation
+ * and used to be stranded when the context failed to dispose).
+ */
+async function releaseRuntime(): Promise<void> {
+  try { session?.dispose?.() } catch (e) { console.error('session dispose:', e) }
+  session = null
+  try { sequence?.dispose?.() } catch (e) { console.error('sequence dispose:', e) }
+  sequence = null
+  try { await context?.dispose?.() } catch (e) { console.error('context dispose:', e) }
+  context = null
+  try { await model?.dispose?.() } catch (e) { console.error('model dispose:', e) }
+  model = null
+  try { await llama?.dispose?.() } catch (e) { console.error('llama dispose:', e) }
+  llama = null
 }
 
 async function chat(prompt: string): Promise<string> {
@@ -115,17 +140,9 @@ async function chat(prompt: string): Promise<string> {
     }
     broadcastStatus('generating')
 
-    // Dispose previous session AND sequence to free the slot
-    if (session) {
-      try { session.dispose?.() } catch {}
-      session = null
-    }
-    if (sequence) {
-      try { sequence.dispose?.() } catch {}
-      sequence = null
-    }
-
-    // Create a fresh sequence + session each time
+    // Create a fresh sequence + session each time. The previous pair is
+    // released in the finally below rather than here, so nothing is held after
+    // the last generation finishes.
     sequence = context.getSequence()
     session = new llmModule.LlamaChatSession({ contextSequence: sequence })
     let fullResponse = ''
@@ -147,21 +164,21 @@ async function chat(prompt: string): Promise<string> {
     broadcastStatus('ready')
     throw new Error(msg)
   } finally {
+    // Release the session and its 4096-token KV cache as soon as the
+    // generation ends, on success or failure. These were previously freed only
+    // at the start of the NEXT chat, so one session stayed resident for the
+    // rest of the app's life once the user stopped asking questions.
+    try { session?.dispose?.() } catch (e) { console.error('session dispose:', e) }
+    session = null
+    try { sequence?.dispose?.() } catch (e) { console.error('sequence dispose:', e) }
+    sequence = null
     resolve!()
   }
 }
 
 export async function disposeLlm(): Promise<void> {
-  try {
-    if (session) { session.dispose?.(); session = null }
-    if (sequence) { sequence.dispose?.(); sequence = null }
-    if (context) { await context.dispose?.(); context = null }
-    if (model) { await model.dispose?.(); model = null }
-    if (llama) { await llama.dispose?.(); llama = null }
-    status = 'idle'
-  } catch (err) {
-    console.error('Error disposing LLM:', err)
-  }
+  await releaseRuntime()
+  status = 'idle'
 }
 
 export function registerLlmHandlers(): void {

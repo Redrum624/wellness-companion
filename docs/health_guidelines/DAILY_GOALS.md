@@ -1,6 +1,6 @@
 # Daily Goals for Adult Women
 
-Default targets for the Daily Wellness Companion app. All goals are derived from the Women's Health Guidelines document and based on recommendations from the WHO, CDC, National Sleep Foundation, National Academies of Medicine, and the 2025–2030 Dietary Guidelines for Americans.
+Default targets for the Daily Wellness Companion app. These cover 9 of the app's 12 categories: Ideas, Cycle and Bad Habits are tracked without daily targets, and the code defines no goals for them either. All goals are derived from the Women's Health Guidelines document and based on recommendations from the WHO, CDC, National Sleep Foundation, National Academies of Medicine, and the 2025–2030 Dietary Guidelines for Americans.
 
 Goals are designed to be achievable starting points. Users should be encouraged to adjust them based on their age, activity level, health conditions, and personal preferences.
 

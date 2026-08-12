@@ -1,6 +1,6 @@
 # Adult Women's Health Guidelines
 
-A reference document covering health recommendations across all 9 categories tracked in the Daily Wellness Companion app. These guidelines are drawn from major health organizations including the WHO, CDC, National Academies of Medicine, National Sleep Foundation, and the 2025–2030 Dietary Guidelines for Americans. They are intended as general guidance — individual needs vary based on age, activity level, health conditions, pregnancy status, and other factors. Always consult a healthcare provider for personalized advice.
+A reference document covering health recommendations across 9 of the 12 categories tracked in the Daily Wellness Companion app (Ideas, Cycle and Bad Habits are tracked in the app but have no guideline section here). These guidelines are drawn from major health organizations including the WHO, CDC, National Academies of Medicine, National Sleep Foundation, and the 2025–2030 Dietary Guidelines for Americans. They are intended as general guidance — individual needs vary based on age, activity level, health conditions, pregnancy status, and other factors. Always consult a healthcare provider for personalized advice.
 
 ---
 

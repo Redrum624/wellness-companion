@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and below (fullBackupContent). Nothing is eligible for backup:
+  the database is health data and must not leave the device except through an
+  explicit, pairing-code-authenticated sync to the user's own PC.
+-->
+<full-backup-content>
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="." />
+</full-backup-content>

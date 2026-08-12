@@ -167,25 +167,3 @@ private fun CategoryScreenWrapper(
     }
 }
 
-@Composable
-private fun PlaceholderContent(category: Category) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 100.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = category.icon,
-                style = MaterialTheme.typography.displayLarge
-            )
-            Text(
-                text = "Coming in Phase 2",
-                style = MaterialTheme.typography.bodyLarge,
-                color = category.colors.textColor.copy(alpha = 0.5f),
-                modifier = Modifier.padding(top = 16.dp)
-            )
-        }
-    }
-}

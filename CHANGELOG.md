@@ -10,7 +10,7 @@ All notable changes to Wellness Companion are documented here.
   Why: the NSIS template owned the wizard and only exposed a macro hook, so opt-in task checkboxes,
   custom pages and a bundled phone-app install were not reachable. electron-builder is now a `dir`
   target that only emits `dist\win-unpacked\`; `wellness_setup.iss` wraps it.
-  How to use: `build_setup.bat` (prompts) or `build_setup.bat lean|offline`.
+  How to use: `installer\build_installer.bat` (lean) or `installer\build_installer.bat offline`.
   Affects: `installer\*`, `build_setup.bat`, `windows\package.json`.
 - The installer is now a single self-contained file. The VC++ redistributable and the Android APK
   are embedded, so there is no longer a "ship these two files together" step.

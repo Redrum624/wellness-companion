@@ -35,6 +35,11 @@ $ModelFile    = 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
 $ModelRel     = Join-Path $ModelDirRel $ModelFile
 $ModelUrl     = 'https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
 $ModelBytes   = 2497280448
+# SHA-256 of the upstream file, taken from Hugging Face's X-Linked-ETag (the Git
+# LFS object hash) and confirmed against a local Get-FileHash. Length alone is a
+# weak check: curl follows redirects, so a substituted file of identical size
+# would previously have been accepted and then loaded straight into llama.cpp.
+$ModelSha256  = '8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc'
 
 $DataRoot   = Join-Path $env:LOCALAPPDATA 'wellness-companion'
 $TargetPath = Join-Path $DataRoot $ModelRel
@@ -49,12 +54,28 @@ function Write-Log {
 }
 
 function Test-ModelComplete {
-    param([string] $Path)
+    param(
+        [string] $Path,
+        # Hashing 2.5 GB costs ~10s. Worth it after a download or a copy from an
+        # untrusted location; skippable for the cheap "is it already here" probe.
+        [switch] $VerifyHash
+    )
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     $len = (Get-Item -LiteralPath $Path).Length
     if ($len -ne $ModelBytes) {
         Write-Log ("Size mismatch at {0}: {1} bytes, expected {2}." -f $Path, $len, $ModelBytes) 'WARN'
         return $false
+    }
+    if ($VerifyHash) {
+        Write-Log 'Verifying SHA-256 (this takes a few seconds for a 2.5 GB file)...'
+        $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
+        if ($actual -ne $ModelSha256) {
+            Write-Log ("SHA-256 mismatch at {0}." -f $Path) 'ERROR'
+            Write-Log ("  expected {0}" -f $ModelSha256) 'ERROR'
+            Write-Log ("  actual   {0}" -f $actual) 'ERROR'
+            return $false
+        }
+        Write-Log 'SHA-256 matches the published Hugging Face digest.'
     }
     return $true
 }
@@ -98,7 +119,7 @@ $embedded = Join-Path $InstallRoot $ModelRel
 if (Test-Path -LiteralPath $embedded) {
     Write-Log 'Found the model embedded in the install folder; moving it to the data root...'
     if (Invoke-Robocopy -From (Join-Path $InstallRoot $ModelDirRel) -To $TargetDir -Move) {
-        if (Test-ModelComplete $TargetPath) { Write-Log 'Model ready (moved from the installer).'; exit 0 }
+        if (Test-ModelComplete $TargetPath -VerifyHash) { Write-Log 'Model ready (moved from the installer).'; exit 0 }
     }
     Write-Log 'Move from the install folder did not produce a complete model.' 'WARN'
 }
@@ -109,7 +130,7 @@ if ($SetupDir) {
     if (Test-Path -LiteralPath $adjacent) {
         Write-Log "Found a model next to the installer at $adjacent; copying..."
         if (Invoke-Robocopy -From (Join-Path $SetupDir $ModelDirRel) -To $TargetDir) {
-            if (Test-ModelComplete $TargetPath) { Write-Log 'Model ready (copied from the installer folder).'; exit 0 }
+            if (Test-ModelComplete $TargetPath -VerifyHash) { Write-Log 'Model ready (copied from the installer folder).'; exit 0 }
         }
         Write-Log 'Copy from the installer folder did not produce a complete model.' 'WARN'
     }
@@ -143,7 +164,7 @@ if ($curlCode -ne 0) {
 }
 
 Write-Log 'Download finished; verifying...'
-if (Test-ModelComplete $TargetPath) {
+if (Test-ModelComplete $TargetPath -VerifyHash) {
     Write-Log 'Model ready (downloaded and verified).'
     exit 0
 }

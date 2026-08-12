@@ -22,9 +22,11 @@
 #define AppExeName    "Wellness Companion.exe"
 #define AppDataSlug   "wellness-companion"
 
-; Fallback so the script still compiles if ISCC is invoked by hand without /D.
+; No fallback version. A build invoked without /DAppVersion used to emit
+; "Wellness Companion Setup 0.0.0.exe" and register 0.0.0 in Add/Remove
+; Programs, which is worse than not building at all.
 #ifndef AppVersion
-  #define AppVersion "0.0.0"
+  #error AppVersion is required. Invoke via build_installer.bat, or pass /DAppVersion=x.y.z
 #endif
 
 ; Repo root is the parent of this script's folder (installer\).
@@ -80,9 +82,19 @@ Source: "{#SourcePath}\setup_model.ps1";       DestDir: "{app}"; Flags: ignoreve
 Source: "{#SourcePath}\install_phone_app.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourcePath}\icon\wellness.ico";     DestDir: "{app}"; Flags: ignoreversion
 
-; --- Android debug APK -> where install_phone_app.bat looks for it ---
-Source: "{#RepoRoot}\android\app\build\outputs\apk\debug\app-debug.apk"; \
-    DestDir: "{app}\android"; DestName: "WellnessCompanion.apk"; Flags: ignoreversion
+; --- Android APK -> where install_phone_app.bat looks for it ---
+;     Prefer a release build. A debug APK is debuggable and signed with the
+;     universally-known Android debug key, so anyone with USB access could
+;     `run-as` the package and read the health database. Release signing needs
+;     android\keystore.properties (untracked) — see android\app\build.gradle.kts.
+#define ReleaseApk RepoRoot + "\android\app\build\outputs\apk\release\app-release.apk"
+#define DebugApk   RepoRoot + "\android\app\build\outputs\apk\debug\app-debug.apk"
+#if FileExists(ReleaseApk)
+Source: "{#ReleaseApk}"; DestDir: "{app}\android"; DestName: "WellnessCompanion.apk"; Flags: ignoreversion
+#else
+Source: "{#DebugApk}"; DestDir: "{app}\android"; DestName: "WellnessCompanion.apk"; Flags: ignoreversion
+#pragma message "WARNING: shipping the DEBUG APK — create android\keystore.properties and run assembleRelease for a release-signed build."
+#endif
 
 ; --- VC++ redistributable: always embedded so the setup is a true single file ---
 ;     Extracted to {tmp} and removed afterwards; only run when vcruntime140.dll

@@ -7,9 +7,17 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!--
+      Backups are off: the Room database holds cycle, health, mood and bathroom
+      entries, and with backups enabled that history is extractable via
+      `adb backup` and copied into the user's cloud backup. Syncing to the
+      desktop app is the intended way to move data off the phone.
+    -->
     <application
         android:name=".WellnessApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"

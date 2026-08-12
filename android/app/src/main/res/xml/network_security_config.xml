@@ -1,4 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted app-wide, deliberately.
+
+  The app's ONLY network activity is LAN sync with the desktop app over
+  ws://<pc-ip>:9847 — there is no analytics, no remote API, no update check and
+  no ad SDK (grep for OkHttp usage: SyncManager is the sole caller).
+
+  A previous revision tried to narrow this to private ranges with
+  <domain-config> entries like 10.0.0.0/8. That does NOT work: Android's
+  network-security-config matches <domain> values as hostnames, not CIDR blocks,
+  so the ranges never matched and every sync failed with
+  "CLEARTEXT communication to 10.0.2.2 not permitted by network security policy".
+  Android provides no way to scope cleartext to a subnet, so the choice is
+  app-wide cleartext or no LAN sync at all.
+
+  What protects the channel instead: the desktop refuses every read and write
+  until the client presents the pairing code shown in its sidebar. That is access
+  control, not confidentiality — see the security note in README.md.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

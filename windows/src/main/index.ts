@@ -18,7 +18,9 @@ function createWindow(): void {
     icon: iconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // The preload uses only contextBridge + ipcRenderer, which are
+      // sandbox-compatible, so the renderer runs fully sandboxed.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -28,9 +30,33 @@ function createWindow(): void {
     mainWindow.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+  // Only ever hand http(s) to the OS. Without a scheme check, a url like
+  // file:, smb: or ms-msdt: reaches the shell's protocol handlers — a real
+  // risk here because entry data arrives over the LAN sync channel and is
+  // rendered in this window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    let scheme = ''
+    try {
+      scheme = new URL(url).protocol
+    } catch {
+      return { action: 'deny' }
+    }
+    if (scheme === 'https:' || scheme === 'http:') void shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  // Keep the window pinned to the packaged app. Navigating away would carry
+  // the exposed db/llm/sync bridges to whatever loaded next.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const devUrl = process.env['ELECTRON_RENDERER_URL']
+    if (devUrl && url.startsWith(devUrl)) return
+    if (url.startsWith('file://')) return
+    event.preventDefault()
+  })
+
+  // No webviews are used; refuse any that markup tries to attach.
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -66,8 +92,30 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', async () => {
-  stopSyncServer()
-  await disposeLlm()
-  closeDatabase()
+// Electron does not await async 'before-quit' listeners, so an async handler
+// can be cut off mid-teardown — leaving the llama context undisposed and the
+// SQLite WAL never checkpointed. Hold the quit, tear down, then exit.
+let isQuitting = false
+app.on('before-quit', (event) => {
+  if (isQuitting) return
+  event.preventDefault()
+  isQuitting = true
+  void (async () => {
+    try {
+      await stopSyncServer()
+    } catch (err) {
+      console.error('sync server shutdown failed:', err)
+    }
+    try {
+      await disposeLlm()
+    } catch (err) {
+      console.error('LLM disposal failed:', err)
+    }
+    try {
+      closeDatabase()
+    } catch (err) {
+      console.error('database close failed:', err)
+    }
+    app.exit(0)
+  })()
 })

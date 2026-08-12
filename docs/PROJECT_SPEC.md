@@ -1,4 +1,19 @@
-# Daily Wellness Companion — Full Project Specification
+# Daily Wellness Companion — Original Design Specification
+
+> **Status: pre-v1.0 design document, retained for context. Not as-built documentation.**
+>
+> This was written before implementation and describes the app as originally designed. The shipped
+> product diverges from it in several places, and **[README.md](../README.md) is the accurate
+> description of what exists**. Known divergences:
+>
+> - It describes **9 categories**; the app ships **12** (Ideas, Cycle and Bad Habits were added
+>   after this was written and have no sections below).
+> - It names **Llama 3.1 8B Q8_0** as the model; the app ships **Qwen3-4B-Instruct-2507-Q4_K_M**
+>   (~2.5 GB, not ~9 GB of VRAM).
+> - Several sync-layer and analysis features below are **not implemented** — see the inline
+>   "not implemented" markers.
+> - The roadmap at the end is written as forward-looking estimates; all six phases shipped in
+>   v1.0.0 / v1.1.0.
 
 ## Overview
 
@@ -41,26 +56,39 @@ Both apps share a pastel illustrated design language with Japanese-inspired deco
 - **Shell:** Electron
 - **UI:** React + TypeScript
 - **Database:** better-sqlite3 (native binding, synchronous reads)
-- **Charts:** Recharts + D3
-- **LLM:** node-llama-cpp with CUDA enabled
-- **Model:** Llama 3.1 8B Instruct Q8_0 GGUF (~9GB VRAM on 16GB GPU)
+- **Charts:** ~~Recharts + D3~~ — **not implemented.** Neither library is used; the desktop
+  visuals (calendar heatmap, backgrounds) are hand-rolled SVG.
+- **LLM:** node-llama-cpp with CUDA enabled, falling back to CPU
+- **Model:** ~~Llama 3.1 8B Instruct Q8_0 GGUF (~9GB VRAM on 16GB GPU)~~ — **shipped instead:**
+  Qwen3-4B-Instruct-2507-Q4_K_M GGUF (~2.5 GB)
 - **Sync Server:** ws (WebSocket, runs inside Electron)
 - **Font:** Nunito (same as Android for visual consistency)
 
 ### Sync Layer
-- **Protocol:** WebSocket (persistent connection when both online, HTTP polling fallback)
-- **Discovery:** mDNS/Bonjour (zero-config local network). Manual IP fallback.
-- **Data Format:** JSON
-- **Sync Strategy:** Delta sync — only changed entries sent, each entry has version number + last-modified timestamp
-- **Conflict Resolution:** Per-field last-write-wins. Simultaneous edits to different fields merge cleanly.
-- **Compression:** gzip (typical day's data < 5KB compressed)
-- **Encryption:** TLS for transport. Optional at-rest encryption with user-set passphrase.
-- **Schema Versioning:** Migration system so app updates don't break sync between different versions.
-- **Optional Cloud Relay:** For syncing when not on the same network. Self-hosted or optional cloud. End-to-end encrypted.
+
+> **Security note.** The three encryption items below were design intent and are **NOT
+> implemented**. The shipped sync channel is plaintext `ws://` on the local network, and the
+> SQLite database is not encrypted at rest. Access is controlled by an eight-character pairing
+> code that the desktop requires before serving or accepting any data. Do not rely on this
+> document for the app's security posture — README.md states the real one.
+
+- **Protocol:** WebSocket. ~~HTTP polling fallback~~ — **not implemented.**
+- **Discovery:** mDNS/Bonjour (zero-config local network). Manual IP fallback. *(implemented)*
+- **Data Format:** JSON *(implemented)*
+- **Sync Strategy:** Delta sync — only changed entries sent, each entry has version number + last-modified timestamp *(implemented)*
+- **Conflict Resolution:** Last-write-wins on `modified_at`. *(implemented; per-field merge was not)*
+- **Authentication:** eight-character pairing code, required in both directions, five attempts per connection. *(implemented — added in v1.1.0, not in the original design)*
+- **Compression:** ~~gzip~~ — **not implemented.**
+- **Encryption:** ~~TLS for transport. Optional at-rest encryption with user-set passphrase.~~ — **not implemented.**
+- **Schema Versioning:** Room migrations on the phone; `CREATE TABLE IF NOT EXISTS` on the desktop. *(partially implemented)*
+- **Optional Cloud Relay:** ~~For syncing when not on the same network. End-to-end encrypted.~~ — **not implemented.**
 
 ---
 
-## The 9 Categories
+## The 9 Categories (as designed)
+
+> The shipped app has **12**: Ideas, Cycle and Bad Habits were added later and are not
+> described below. See README.md for the full module list.
 
 Every entry is timestamped and belongs to one of these categories. The Android app has a dedicated interactive screen for each. The Windows app has equivalent input forms (keyboard-optimized).
 
@@ -76,7 +104,7 @@ Every entry is timestamped and belongs to one of these categories. The Android a
 ### 2. Food Intake
 - **Input (Android):** Four meal slots (Breakfast, Lunch, Dinner, Snacks). Tap to log. Each slot has a text description field and optional photo.
 - **Input (Windows):** Same slots, keyboard-optimized text fields.
-- **Data stored:** `{ timestamp, meal_type, description, photo_path? }`
+- **Data stored:** `{ timestamp, meal_type, description, photo_path? }` — note: `photo_path` is unused; **meal photo attachments are not implemented.**
 - **Visuals:** Meal slot cards with icons (sun, cloud-sun, moon, cookie). Green left-border when logged.
 - **Background:** Bamboo tree, noren curtain, chopstick/bowl shapes, cherry blossom petals.
 - **Dashboard card:** Shows X/4 meals logged.
@@ -207,7 +235,7 @@ Every entry is timestamped and belongs to one of these categories. The Android a
 
 ### Data Dashboard
 - **Timeline browser:** Scroll through days, weeks, months. See all 9 categories overlaid on a single timeline. Filter by category.
-- **Correlation explorer:** Interactive scatter/heatmap showing how categories relate (e.g., does sleep quality affect mood? Do chores relate to energy?).
+- **Correlation explorer:** **— not implemented.** Interactive scatter/heatmap showing how categories relate (e.g., does sleep quality affect mood? Do chores relate to energy?).
 - **Calendar heatmap:** GitHub-style contribution grid for wellness. Color intensity = how active that day was across all categories.
 
 ### Input Capability
@@ -232,12 +260,12 @@ User data (SQLite) → Context builder (TS) → Prompt template → node-llama-c
    - **Weekly portrait:** Every Sunday, generates a narrative summary. Example: "This week you slept better but skipped hydration on work days. Your mood dipped on Wednesday — the same day you logged no hobbies."
    - **Pattern detection:** Identifies recurring correlations. Example: "You tend to feel anxious on days you skip hobbies."
    - **Conversational Q&A:** Ask questions about your data. Example: "How was my sleep last month?" "When am I most productive?"
-   - **Monthly deep dive:** Longer analysis with charts, trends, improvements, areas to focus on. Exportable as PDF.
+   - **Monthly deep dive:** **— not implemented.** Longer analysis with charts, trends, improvements, areas to focus on. Exportable as PDF.
 3. **Streaming responses:** node-llama-cpp supports token streaming, so portrait text appears word-by-word in the UI.
 
 ### Storage & Export
 - **Master SQLite DB:** Windows is the source of truth for long-term storage. Full history, never pruned.
-- **Backup + export:** One-click backup to local folder. Export as CSV, JSON, or PDF reports.
+- **Backup + export:** **— not implemented.** One-click backup to local folder. Export as CSV, JSON, or PDF reports. (The database file itself can be copied manually; see README.md for its location.)
 - **Data retention:** Android can optionally prune old entries (> 3 months) to save space. Windows keeps everything.
 
 ---
@@ -392,7 +420,7 @@ CREATE TABLE sync_log (
 - Notification system (WorkManager)
 - Weekly trend charts (simple bar/line charts)
 - Streaks and goal tracking
-- Android home screen widgets (water, bathroom, mood — log without opening app)
+- Android home screen widgets (water, bathroom, mood — log without opening app) **— not implemented.**
 
 ### Phase 3 — Windows App v1 (4–5 weeks)
 - Electron shell with React + TypeScript
@@ -429,7 +457,7 @@ CREATE TABLE sync_log (
 
 ## Prototyping Notes
 
-Interactive prototypes of all 9 Android screens (including the crane bowl with physics animation) were built as HTML/CSS/JS widgets during planning. These can serve as direct references for the Jetpack Compose implementations (Android) and React components (Windows). The visual language, colors, spacing, and interaction patterns are all defined in these prototypes.
+Interactive prototypes of 9 of the Android screens (including the crane bowl with physics animation) were built as HTML/CSS/JS widgets during planning. These can serve as direct references for the Jetpack Compose implementations (Android) and React components (Windows). The visual language, colors, spacing, and interaction patterns are all defined in these prototypes.
 
 Key prototype behaviors to preserve:
 - Water bottle: vertical drag gesture, wave animation, capacity picker

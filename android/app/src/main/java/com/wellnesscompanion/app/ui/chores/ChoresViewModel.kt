@@ -13,6 +13,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -122,13 +123,12 @@ class ChoresViewModel @Inject constructor(
     private suspend fun saveTasks(data: ChoreData) {
         val existingId = _todayEntryId.value
         if (existingId != null) {
-            // Update existing entry
-            repository.getTodayEntries("chores").collect { entries ->
-                entries.firstOrNull()?.let { entry ->
-                    repository.updateEntry(entry.copy(data = gson.toJson(data)))
-                }
-                return@collect
-            }
+            // A one-shot read, NOT collect{}. `return@collect` only returns from
+            // the lambda, so the Flow stayed subscribed — and because updateEntry
+            // writes to the same table, Room re-emitted and the collector wrote
+            // again, forever. Each call also leaked a suspended coroutine.
+            val entry = repository.getTodayEntries("chores").first().firstOrNull()
+            entry?.let { repository.updateEntry(it.copy(data = gson.toJson(data))) }
         } else {
             // Create new entry
             repository.addEntry("chores", data)
