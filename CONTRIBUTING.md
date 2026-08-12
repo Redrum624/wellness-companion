@@ -11,7 +11,7 @@ please read [LICENSE](LICENSE) before building on it.
 3. **Build both halves** — a change to the sync protocol touches both apps:
    ```bat
    cd android && gradlew.bat assembleDebug
-   cd windows && npm run build
+   cd windows && pnpm build
    ```
 4. **Exercise the change end-to-end.** There is no automated test suite yet, so a PR should say
    what you actually ran. For anything touching sync, that means: launch the desktop app, pair a

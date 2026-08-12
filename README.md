@@ -159,10 +159,12 @@ Twelve categories, each with a dedicated screen on the phone and an equivalent p
 
 - **Android SDK + JDK 17** — required. The installer bundles the phone app, and `android/app/build/`
   is gitignored, so a clean clone always builds the APK from source.
-- **Node.js 18+** and **pnpm** (or npm) for the desktop app.
-- **A C++ toolchain** — Visual Studio Build Tools with "Desktop development with C++".
-  `npm install` runs `electron-builder install-app-deps`, which rebuilds the native
-  `better-sqlite3` and `node-llama-cpp` bindings from source.
+- **Node.js 18+ and [pnpm](https://pnpm.io/installation)** for the desktop app. Use pnpm, not npm —
+  the repo ships `pnpm-lock.yaml`, and `npm install` both ignores it and fails on Python 3.12+
+  (npm's bundled node-gyp 9 imports `distutils`, removed from the standard library in 3.12). pnpm
+  installs a prebuilt `better-sqlite3` binary and never invokes node-gyp.
+- **A C++ toolchain** — Visual Studio Build Tools with "Desktop development with C++". Only needed
+  if a native dependency has no prebuilt binary for your platform; the normal path uses prebuilds.
 - **[Inno Setup 6](https://jrsoftware.org/isdl.php)** to compile the installer.
 - **Python 3** — required: the build generates the shipped `README.txt` from this file. Pillow is
   needed only to regenerate `installer/icon/wellness.ico`, which is already committed.
@@ -188,7 +190,7 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 ```bat
 cd windows
-npm install
+pnpm install
 cd ..
 installer\build_installer.bat            :: lean — the model is downloaded at install time
 installer\build_installer.bat offline    :: offline — the model is embedded (~2.8 GB installer)
@@ -205,7 +207,7 @@ To ship a release-signed phone app rather than the debug build, create a keystor
 
 ```bat
 cd windows
-npm run dev
+pnpm dev
 ```
 
 ## Architecture

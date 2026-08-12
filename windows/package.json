@@ -5,6 +5,10 @@
   "main": "./out/main/index.js",
   "author": "Redrum624",
   "license": "PolyForm-Noncommercial-1.0.0",
+  "packageManager": "pnpm@11.2.2",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
