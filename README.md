@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo.png" alt="Wellness Companion logo — a sprout with a heart" width="116">
+</p>
+
 <h1 align="center">Wellness Companion</h1>
 
 <p align="center">
