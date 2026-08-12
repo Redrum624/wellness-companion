@@ -47,16 +47,33 @@ def _flatten_inline(text: str) -> str:
 
 
 def flatten_markdown(md: str) -> str:
+    # Drop HTML comments outright, including multi-line ones. They are editor
+    # notes (e.g. badges commented out until publish) and must not surface in
+    # the shipped plain-text readme.
+    md = re.sub(r"<!--.*?-->", "", md, flags=re.DOTALL)
+
     out_lines = []
     in_code = False
+    skip_block = False
     for raw in md.splitlines():
         stripped = raw.strip()
 
         # Code fence toggle (```lang / ```): drop the fence line itself.
         if stripped.startswith("```") or stripped.startswith("~~~"):
+            if not in_code:
+                # Diagram sources (mermaid et al.) are meaningless as plain
+                # text — replace the whole block with a pointer.
+                lang = stripped.lstrip("`~").strip().lower()
+                skip_block = lang in ("mermaid", "plantuml", "dot", "graphviz")
+                if skip_block:
+                    out_lines.append("    [diagram - see README.md in the project repository]")
             in_code = not in_code
+            if not in_code:
+                skip_block = False
             continue
         if in_code:
+            if skip_block:
+                continue
             # Keep code content verbatim, indented so it reads as a block.
             out_lines.append("    " + raw)
             continue
