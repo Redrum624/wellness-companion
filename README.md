@@ -15,11 +15,11 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/android-dashboard.png" alt="Dashboard showing twelve category cards" width="19%">
-  <img src="docs/images/android-water.png" alt="Water screen with a draggable bottle" width="19%">
+  <img src="docs/images/android-dashboard.png" alt="Dashboard showing twelve category cards with streaks" width="19%">
+  <img src="docs/images/android-water.png" alt="Water screen: 3073 ml against a 2700 ml goal" width="19%">
   <img src="docs/images/android-hobbies.png" alt="Hobbies screen: a bowl filling with origami cranes" width="19%">
-  <img src="docs/images/android-emotions.png" alt="Emotions screen with the day's emotional flow" width="19%">
-  <img src="docs/images/android-sync.png" alt="Sync panel with the pairing code field" width="19%">
+  <img src="docs/images/android-emotions.png" alt="Emotions screen with the day's emotional flow and a 7-day trend" width="19%">
+  <img src="docs/images/android-sleep.png" alt="Sleep screen with duration, quality score and a 7-day trend" width="19%">
 </p>
 
 ---
@@ -105,6 +105,13 @@ Only entries changed since the last successful sync are sent, in batches, so a l
 mean a huge transfer. If mDNS discovery fails — some networks block multicast — type the PC's
 address in manually.
 
+<p align="center">
+  <img src="docs/images/android-sync.png" alt="The phone's sync panel: paired, and reporting 819 entries received" width="30%">
+  &nbsp;&nbsp;
+  <img src="docs/images/android-celebrate.png" alt="A celebration overlay when the daily water goal is met" width="30%">
+</p>
+<p align="center"><sub>Left: a first sync pulling nine weeks of history. Right: what hitting a daily goal looks like.</sub></p>
+
 ### Be clear about what the pairing code does
 
 It is **access control, not encryption.** It stops other devices on your network from reading or
@@ -152,12 +159,23 @@ system per category.
 
 ---
 
-## Screenshots
+## The desktop hub
 
 <p align="center">
-  <img src="docs/images/desktop.png" alt="The desktop app: sidebar, category cards, activity heatmap and pairing code" width="90%">
+  <img src="docs/images/desktop.png" alt="The desktop app: sidebar, category cards and a 52-week activity heatmap" width="90%">
 </p>
-<p align="center"><sub>The desktop hub. The pairing code lives bottom-left in the sidebar.</sub></p>
+<p align="center"><sub>Today at a glance, with a year of activity below it. The pairing code lives bottom-left.</sub></p>
+
+### Insights, written locally
+
+Ask a question about your own data, or generate a weekly portrait, a pattern search, or a monthly
+deep dive. The model reads your entries from the local database and runs on your GPU — nothing is
+uploaded, and the app works exactly the same with the network off.
+
+<p align="center">
+  <img src="docs/images/desktop-insights.png" alt="The Insights page showing an AI-written weekly portrait generated from the local database" width="90%">
+</p>
+<p align="center"><sub>A weekly portrait generated from nine weeks of entries by Qwen3-4B running on-device.</sub></p>
 
 ---
 
