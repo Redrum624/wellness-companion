@@ -23,7 +23,6 @@
 </p>
 
 ---
-
 ## Why this exists
 
 Wellness apps want your body in their cloud. Sleep, mood, menstrual cycle, symptoms, bathroom
@@ -55,71 +54,11 @@ and writes weekly summaries with a local LLM.
 
 ---
 
-## Quick start
-
-**1. Get the phone app.** It isn't on Google Play. Either run the Windows installer, which bundles
-the Android package and offers to sideload it over USB, or build it yourself:
-
-```bat
-cd android
-gradlew.bat assembleDebug
-adb install -r app\build\outputs\apk\debug\app-debug.apk
-```
-
-**2. That's it** — the phone app works on its own. Stop here if you don't want the desktop half.
-
-**3. Optional: add the desktop app.** Download `Wellness Companion Setup <version>.exe` from the
-[Releases page](https://github.com/Redrum624/wellness-companion/releases/latest) and run it. One
-file contains the app, the Visual C++ runtime, and the Android package.
-
-**4. Pair them.** Open the desktop app — its sidebar shows an eight-character code. On the phone,
-tap **🔄 Sync**, enter the code, tap **Pair**, then **Sync**. Once only.
-
----
-
-## How syncing works
-
-The desktop advertises itself over mDNS and refuses to serve or accept anything until the phone
-proves it knows the pairing code.
-
-```mermaid
-sequenceDiagram
-    participant P as Phone
-    participant D as Desktop (port 9847)
-    D-->>P: mDNS: "wellness-companion-sync"
-    P->>D: connect
-    D->>P: hello { requiresAuth: true }
-    Note over P,D: nothing has been sent yet
-    P->>D: auth { code }
-    alt code is wrong
-        D->>P: auth_failed (5 attempts, then disconnect)
-    else code is right
-        D->>P: auth_ok
-        P->>D: full_sync { entries changed since last sync }
-        D->>P: full_sync_response { entries you don't have }
-        Note over P,D: last-write-wins on modified_at
-    end
-```
-
-Only entries changed since the last successful sync are sent, in batches, so a long history doesn't
-mean a huge transfer. If mDNS discovery fails — some networks block multicast — type the PC's
-address in manually.
-
 <p align="center">
-  <img src="docs/images/android-sync.png" alt="The phone's sync panel: paired, and reporting 819 entries received" width="30%">
-  &nbsp;&nbsp;
-  <img src="docs/images/android-celebrate.png" alt="A celebration overlay when the daily water goal is met" width="30%">
+  <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><strong>⬇&nbsp; Download the latest release</strong></a><br>
+  <sub>One Windows installer — it carries the desktop app and the Android package.<br>
+  Prefer just the phone app? <a href="#get-the-apps">Jump to install.</a></sub>
 </p>
-<p align="center"><sub>Left: a first sync pulling nine weeks of history. Right: what hitting a daily goal looks like.</sub></p>
-
-### Be clear about what the pairing code does
-
-It is **access control, not encryption.** It stops other devices on your network from reading or
-writing your data. It does not hide the contents from someone who can already observe your LAN
-traffic: sync runs over plain `ws://`, and neither database is encrypted at rest.
-
-Use it on networks you trust. Full detail — including what the project deliberately does *not* do —
-is in [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -158,7 +97,6 @@ routine amounts · star ratings, sliders and tag input with recall · a consiste
 system per category.
 
 ---
-
 ## The desktop hub
 
 <p align="center">
@@ -183,7 +121,50 @@ ends with a single concrete thing to try.
 day to the tiredness logged that evening, and a drop in energy to a short night's sleep.</sub></p>
 
 ---
+<a id="get-the-apps"></a>
 
+## Get the apps
+
+**1. Get the phone app.** It isn't on Google Play. Either run the Windows installer, which bundles
+the Android package and offers to sideload it over USB, or build it yourself:
+
+```bat
+cd android
+gradlew.bat assembleDebug
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+**2. That's it** — the phone app works on its own. Stop here if you don't want the desktop half.
+
+**3. Optional: add the desktop app.** Download `Wellness Companion Setup <version>.exe` from the
+[Releases page](https://github.com/Redrum624/wellness-companion/releases/latest) and run it. One
+file contains the app, the Visual C++ runtime, and the Android package.
+
+**4. Pair them.** Open the desktop app — its sidebar shows an eight-character code. On the phone,
+tap **🔄 Sync**, enter the code, tap **Pair**, then **Sync**. Once only.
+
+---
+
+## Pairing the phone with the PC
+
+Open the desktop app first — its sidebar shows an eight-character **pairing code**. On the phone,
+tap **🔄 Sync**, type the code in, tap **Pair**, then **Sync**. You do this once; the phone
+remembers it.
+
+If mDNS discovery fails — some networks block multicast — type the PC's address in the field below
+instead (`192.168.1.42:9847`).
+
+<p align="center">
+  <img src="docs/images/android-sync.png" alt="The phone's sync panel: paired, and reporting 819 entries received" width="30%">
+  &nbsp;&nbsp;
+  <img src="docs/images/android-celebrate.png" alt="A celebration overlay when the daily water goal is met" width="30%">
+</p>
+<p align="center"><sub>Left: a first sync pulling nine weeks of history. Right: what hitting a daily goal looks like.</sub></p>
+
+**The pairing code is access control, not encryption.** It stops other devices on your network from
+reading or writing your data. It does not hide the contents from someone who can already observe
+your LAN traffic: sync runs over plain `ws://`, and neither database is encrypted at rest. Use it on
+networks you trust — [SECURITY.md](SECURITY.md) has the full picture.
 ## Building from source
 
 <details>
@@ -289,3 +270,39 @@ Bundled third-party components — npm packages, native libraries, Android depen
 model (Apache 2.0) and the Nunito font (SIL OFL 1.1) — keep their own licences; see
 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md). Nothing here restricts the rights those licences
 grant.
+
+---
+
+## Appendix: the sync protocol
+
+<details>
+<summary>What actually happens on the wire (click to expand)</summary>
+
+The desktop advertises itself over mDNS and refuses to serve or accept anything until the phone
+proves it knows the pairing code.
+
+```mermaid
+sequenceDiagram
+    participant P as Phone
+    participant D as Desktop (port 9847)
+    D-->>P: mDNS: "wellness-companion-sync"
+    P->>D: connect
+    D->>P: hello { requiresAuth: true }
+    Note over P,D: nothing has been sent yet
+    P->>D: auth { code }
+    alt code is wrong
+        D->>P: auth_failed (5 attempts, then disconnect)
+    else code is right
+        D->>P: auth_ok
+        P->>D: full_sync { entries changed since last sync }
+        D->>P: full_sync_response { entries you don't have }
+        Note over P,D: last-write-wins on modified_at
+    end
+```
+
+Only entries changed since the last successful sync are sent, in batches, so a long history doesn't
+mean a huge transfer. Conflicts resolve last-write-wins on `modified_at`. The `hello` frame carries
+a protocol version; if you change the message shape, bump it and handle the older value on both
+sides.
+
+</details>
