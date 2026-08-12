@@ -139,4 +139,11 @@ which is what makes the sync protocol simple enough to be a handful of WebSocket
 
 ## License
 
-MIT
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) —
+see [LICENSE](LICENSE). You may use, modify and share this software freely for any **noncommercial**
+purpose, including personal projects, research, education, and use by nonprofit or government
+organizations. Commercial use is not granted by this license.
+
+Bundled third-party components (npm packages, native libraries, Android dependencies) remain under
+their own licenses; see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md). Nothing in this
+project's license restricts the rights those licenses grant.

@@ -18,10 +18,12 @@ installer/output/
 android/local.properties
 
 # --- Large local assets (AI model, ~2.5 GB; downloaded at install time) ---
-model/
+# Leading slash is load-bearing: a bare "model/" also matches the Android
+# source package android/.../data/model/, silently untracking product code.
+/model/
 
 # --- Runtime ---
-logs/
+/logs/
 
 # --- Editor / OS ---
 .idea/
@@ -32,3 +34,6 @@ Desktop.ini
 
 # --- Standalone ADB sideload bundle (superseded by the installer) ---
 /android_to_phone/
+
+# --- /public-repo run state (go-public pipeline) ---
+/public-repo/
