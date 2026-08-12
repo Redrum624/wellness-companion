@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4A3B78"/>
+      <stop offset="100%" stop-color="#3D3262"/>
+    </linearGradient>
+    <linearGradient id="leaf1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7BE0C0"/>
+      <stop offset="100%" stop-color="#5DCAA5"/>
+    </linearGradient>
+    <linearGradient id="leaf2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5DCAA5"/>
+      <stop offset="100%" stop-color="#48A88A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- Stem -->
+  <path d="M256 400 C256 340 248 300 238 270"
+        fill="none" stroke="#48A88A" stroke-width="16" stroke-linecap="round"/>
+
+  <!-- Left leaf (smaller, positioned to the left of stem, no overlap) -->
+  <path d="M232 275 C210 250 170 230 140 240 C130 270 145 310 185 310 C210 310 228 295 232 275 Z"
+        fill="url(#leaf2)"/>
+
+  <!-- Left leaf vein -->
+  <path d="M225 280 C200 275 175 265 155 255"
+        fill="none" stroke="#3D8A70" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Right leaf (main, larger, positioned to the right) -->
+  <path d="M245 260 C260 220 290 170 340 130 C380 140 400 180 390 230 C380 270 345 300 300 300 C270 300 250 285 245 260 Z"
+        fill="url(#leaf1)"/>
+
+  <!-- Right leaf vein -->
+  <path d="M260 260 C280 230 310 195 340 165"
+        fill="none" stroke="#4AA88A" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Heart (centered in the right leaf, larger and white) -->
+  <path d="M310 205 C310 192 298 182 286 192 C274 182 262 192 262 205 C262 225 286 245 286 245 C286 245 310 225 310 205 Z"
+        fill="white"/>
+</svg>

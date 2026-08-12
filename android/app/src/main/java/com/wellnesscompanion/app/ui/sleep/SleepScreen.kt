@@ -1,0 +1,243 @@
+package com.wellnesscompanion.app.ui.sleep
+
+import android.app.TimePickerDialog
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.wellnesscompanion.app.data.model.Category
+import com.wellnesscompanion.app.ui.components.CategoryWeeklyTrend
+import com.wellnesscompanion.app.ui.theme.SleepText
+
+@Composable
+fun SleepScreen(
+    viewModel: SleepViewModel = hiltViewModel()
+) {
+    val bedtime by viewModel.bedtime.collectAsState()
+    val wakeTime by viewModel.wakeTime.collectAsState()
+    val wakeUps by viewModel.wakeUps.collectAsState()
+    val totalHours by viewModel.totalHours.collectAsState()
+    val qualityScore by viewModel.qualityScore.collectAsState()
+    val saved by viewModel.saved.collectAsState()
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Total sleep display
+        val h = totalHours.toInt()
+        val m = ((totalHours - h) * 60).toInt()
+        Text(
+            text = "${h}h ${m}m",
+            style = MaterialTheme.typography.displayLarge,
+            color = SleepText
+        )
+        Text(
+            "total sleep",
+            style = MaterialTheme.typography.bodyMedium,
+            color = SleepText.copy(alpha = 0.6f)
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Bedtime / Wake time pickers
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            TimeCard(
+                label = "Bedtime",
+                time = bedtime,
+                onClick = {
+                    val parts = bedtime.split(":")
+                    TimePickerDialog(context, { _, hour, minute ->
+                        viewModel.setBedtime("%02d:%02d".format(hour, minute))
+                    }, parts[0].toInt(), parts[1].toInt(), true).show()
+                }
+            )
+            Text("→", color = SleepText.copy(alpha = 0.4f), modifier = Modifier.padding(top = 20.dp))
+            TimeCard(
+                label = "Wake up",
+                time = wakeTime,
+                onClick = {
+                    val parts = wakeTime.split(":")
+                    TimePickerDialog(context, { _, hour, minute ->
+                        viewModel.setWakeTime("%02d:%02d".format(hour, minute))
+                    }, parts[0].toInt(), parts[1].toInt(), true).show()
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Sleep quality bar
+        SleepQualityBar(
+            bedtime = bedtime,
+            wakeTime = wakeTime,
+            wakeUps = wakeUps,
+            totalHours = totalHours,
+            modifier = Modifier.padding(horizontal = 0.dp)
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(bedtime, style = MaterialTheme.typography.labelSmall, color = SleepText.copy(alpha = 0.5f))
+            Text(
+                "${wakeUps.size} wake-ups",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (wakeUps.isNotEmpty()) Color(0xFFF0997B) else SleepText.copy(alpha = 0.4f)
+            )
+            Text(wakeTime, style = MaterialTheme.typography.labelSmall, color = SleepText.copy(alpha = 0.5f))
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Quality score
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.White.copy(alpha = 0.4f))
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            Column {
+                Text("Quality score", style = MaterialTheme.typography.labelMedium, color = SleepText.copy(alpha = 0.6f))
+                Text(
+                    "$qualityScore/10",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = SleepText,
+                    fontSize = 28.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Wake-ups section
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.White.copy(alpha = 0.4f))
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Wake-ups", style = MaterialTheme.typography.labelMedium, color = SleepText.copy(alpha = 0.6f))
+                    Text(
+                        "+ Add",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SleepText,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.5f))
+                            .clickable {
+                                TimePickerDialog(context, { _, hour, minute ->
+                                    viewModel.addWakeUp("%02d:%02d".format(hour, minute))
+                                }, 3, 0, true).show()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                if (wakeUps.isEmpty()) {
+                    Text("No wake-ups logged", style = MaterialTheme.typography.labelSmall, color = SleepText.copy(alpha = 0.4f))
+                } else {
+                    wakeUps.forEachIndexed { index, time ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(time, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFF0997B))
+                            Text(
+                                "✕",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SleepText.copy(alpha = 0.4f),
+                                modifier = Modifier.clickable { viewModel.removeWakeUp(index) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Save button
+        if (!saved) {
+            Button(
+                onClick = { viewModel.saveSleep() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White.copy(alpha = 0.5f),
+                    contentColor = SleepText
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save sleep log")
+            }
+        } else {
+            Text(
+                "Sleep logged ✓",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SleepText.copy(alpha = 0.5f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Weekly trend
+        CategoryWeeklyTrend(category = Category.SLEEP)
+
+        Spacer(modifier = Modifier.height(60.dp))
+    }
+}
+
+@Composable
+private fun TimeCard(label: String, time: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.4f))
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 12.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = SleepText.copy(alpha = 0.6f))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(time, style = MaterialTheme.typography.titleLarge, color = SleepText, fontSize = 24.sp)
+    }
+}

@@ -1,0 +1,30 @@
+# --- Requested: root launcher/build scripts and shipped binaries ---
+/*.bat
+/vc_redist.x64.exe
+/WellnessCompanion-Setup.exe
+
+# --- Dependencies ---
+node_modules/
+
+# --- Build output ---
+windows/out/
+windows/dist/
+android/build/
+android/app/build/
+android/.gradle/
+
+# --- Local machine config (contains local SDK paths) ---
+android/local.properties
+
+# --- Large local assets (AI model, ~2.5 GB; downloaded at install time) ---
+model/
+
+# --- Runtime ---
+logs/
+
+# --- Editor / OS ---
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+Desktop.ini

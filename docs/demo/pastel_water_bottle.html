@@ -1,0 +1,201 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+#wrap{position:relative;min-height:640px;overflow:hidden;background:#C4DCEF;font-family:var(--font-sans)}
+#scene{position:absolute;inset:0;pointer-events:none}
+#fg{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;padding:16px 0 6px;gap:5px}
+.mn{font-size:52px;font-weight:500;color:#3A6D90;letter-spacing:-2.5px;line-height:1;font-variant-numeric:tabular-nums}
+.mu{font-size:17px;color:#5A8EB0;margin-left:3px}
+.pc{font-size:12px;color:#6AAEC8;letter-spacing:.01em}
+.dl{font-size:12px;padding:3px 16px;border-radius:20px;transition:opacity .4s;background:rgba(255,255,255,0.52);color:#3A6D90;min-height:22px;line-height:16px}
+.dl.h{opacity:0}
+.dl.d{background:rgba(180,218,248,0.65);color:#2A5A80}
+.dl.a{background:rgba(168,228,192,0.65);color:#2A6A3A}
+#bsvg{cursor:ns-resize;touch-action:none;display:block}
+.ht{font-size:10px;color:rgba(50,100,135,0.55);display:flex;gap:14px;letter-spacing:.02em}
+.pl{font-size:10px;color:#6AAEC8;letter-spacing:.06em;text-transform:uppercase}
+.ps{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:5px;padding:2px calc(50% - 33px);scrollbar-width:none;width:100%;max-width:400px}
+.ps::-webkit-scrollbar{display:none}
+.pi{scroll-snap-align:center;flex-shrink:0;padding:4px 11px;border-radius:20px;font-size:11px;color:#6AAEC8;cursor:pointer;white-space:nowrap;background:rgba(255,255,255,0.38)}
+.pi.act{color:#3A6D90;background:rgba(255,255,255,0.72);font-weight:500}
+@keyframes wv{to{transform:translateX(-200px)}}
+.wa{animation:wv 3.8s linear infinite}
+</style>
+
+<div id="wrap">
+  <svg id="scene" viewBox="0 0 680 640" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+    <!-- Sun -->
+    <circle cx="590" cy="72" r="50" fill="#FFF0B8" opacity=".75"/>
+    <circle cx="590" cy="72" r="38" fill="#FFF6CC" opacity=".6"/>
+    <!-- Clouds -->
+    <ellipse cx="115" cy="62" rx="58" ry="24" fill="rgba(255,255,255,.62)"/>
+    <ellipse cx="82"  cy="56" rx="38" ry="20" fill="rgba(255,255,255,.62)"/>
+    <ellipse cx="158" cy="59" rx="32" ry="17" fill="rgba(255,255,255,.58)"/>
+    <ellipse cx="430" cy="88" rx="44" ry="18" fill="rgba(255,255,255,.50)"/>
+    <ellipse cx="468" cy="84" rx="30" ry="15" fill="rgba(255,255,255,.50)"/>
+    <ellipse cx="265" cy="110" rx="34" ry="14" fill="rgba(255,255,255,.38)"/>
+    <!-- Distant rolling hills -->
+    <ellipse cx="160" cy="570" rx="220" ry="70" fill="#C4E8C8" opacity=".5"/>
+    <ellipse cx="520" cy="580" rx="200" ry="60" fill="#C4E8C8" opacity=".4"/>
+    <!-- Ground -->
+    <rect x="0" y="552" width="680" height="90" fill="#B8E8C0"/>
+    <ellipse cx="340" cy="552" rx="400" ry="22" fill="#C8EDD0"/>
+    <!-- Big tree right -->
+    <rect x="528" y="370" width="28" height="195" rx="9" fill="#CCB89A"/>
+    <ellipse cx="542" cy="340" rx="58" ry="46" fill="#98CBAA"/>
+    <ellipse cx="542" cy="312" rx="48" ry="40" fill="#ACDDB8"/>
+    <ellipse cx="542" cy="286" rx="36" ry="32" fill="#C0EAC8"/>
+    <ellipse cx="542" cy="264" rx="26" ry="24" fill="#CFF2D8"/>
+    <!-- Tree right 2 (smaller behind) -->
+    <rect x="598" y="430" width="18" height="130" rx="6" fill="#CBBEA8"/>
+    <ellipse cx="607" cy="408" rx="36" ry="30" fill="#A8D4B0"/>
+    <ellipse cx="607" cy="386" rx="26" ry="24" fill="#BADFBF"/>
+    <!-- Small tree left -->
+    <rect x="116" y="450" width="20" height="115" rx="7" fill="#CBBEA8"/>
+    <ellipse cx="126" cy="427" rx="44" ry="35" fill="#A2CEAC"/>
+    <ellipse cx="126" cy="400" rx="34" ry="28" fill="#B6D9BC"/>
+    <ellipse cx="126" cy="377" rx="24" ry="22" fill="#C8E8CF"/>
+    <!-- Far-left tiny bush -->
+    <ellipse cx="44"  cy="548" rx="34" ry="18" fill="#B0D8B8"/>
+    <rect x="38" y="548" width="12" height="20" rx="4" fill="#CBBEA8"/>
+    <!-- Far-right tiny bush -->
+    <ellipse cx="628" cy="548" rx="30" ry="16" fill="#A8D4B0"/>
+    <ellipse cx="52"  cy="430" rx="22" ry="16" fill="#BADCBE" opacity=".6"/>
+  </svg>
+
+  <div id="fg">
+    <div style="display:flex;align-items:baseline">
+      <span id="mlv" class="mn">900</span><span class="mu">ml</span>
+    </div>
+    <div id="pct" class="pc">100% full</div>
+    <div id="dl" class="dl h">&nbsp;</div>
+
+    <svg id="bsvg" width="176" height="416" viewBox="0 0 220 490">
+      <defs>
+        <clipPath id="bc">
+          <path d="M91 8L129 8L129 40Q178 66 195 128L195 442Q195 462 110 462Q25 462 25 442L25 128Q42 66 91 40Z"/>
+        </clipPath>
+      </defs>
+      <!-- Glass bottle body -->
+      <path d="M91 8L129 8L129 40Q178 66 195 128L195 442Q195 462 110 462Q25 462 25 442L25 128Q42 66 91 40Z" fill="rgba(255,255,255,.2)"/>
+      <!-- Cap -->
+      <path d="M91 8L129 8L129 40L91 40Z" fill="rgba(255,255,255,.34)"/>
+      <!-- Water fill (clipped) -->
+      <g clip-path="url(#bc)">
+        <g id="wg" transform="translate(0,462)">
+          <g class="wa">
+            <path d="M-200 0C-150-15-50 15 0 0C50-15 150 15 200 0C250-15 350 15 400 0C450-15 550 15 600 0L600 490L-200 490Z" fill="#8EC8F8"/>
+          </g>
+          <rect x="-200" y="14" width="800" height="490" fill="#8EC8F8"/>
+        </g>
+      </g>
+      <!-- Graduation marks -->
+      <g id="gm" clip-path="url(#bc)"></g>
+      <!-- Glass highlight main -->
+      <path d="M98 44Q90 110 88 230Q88 350 91 438" fill="none" stroke="rgba(255,255,255,.48)" stroke-width="7" stroke-linecap="round"/>
+      <!-- Glass highlight thin right -->
+      <path d="M186 140Q188 280 186 420" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="3" stroke-linecap="round"/>
+      <!-- Cap ridges -->
+      <line x1="91" y1="21" x2="129" y2="21" stroke="rgba(255,255,255,.38)" stroke-width="1.5"/>
+      <line x1="91" y1="32" x2="129" y2="32" stroke="rgba(255,255,255,.38)" stroke-width="1.5"/>
+      <!-- Side drag affordance arrows left -->
+      <text x="14" y="208" font-size="13" fill="rgba(58,109,144,.35)" font-family="var(--font-sans)" text-anchor="middle">↑</text>
+      <text x="14" y="278" font-size="13" fill="rgba(58,109,144,.35)" font-family="var(--font-sans)" text-anchor="middle">↓</text>
+      <!-- Side drag affordance arrows right -->
+      <text x="206" y="208" font-size="13" fill="rgba(58,109,144,.35)" font-family="var(--font-sans)" text-anchor="middle">↑</text>
+      <text x="206" y="278" font-size="13" fill="rgba(58,109,144,.35)" font-family="var(--font-sans)" text-anchor="middle">↓</text>
+    </svg>
+
+    <div class="ht"><span>↑ drag up to fill</span><span>↓ drag down to drink</span></div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:center;width:100%;max-width:400px;margin-top:5px">
+      <p class="pl">capacity</p>
+      <div class="ps" id="ps"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CAPS=[200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1100,1200,1300,1400,1500,1750,2000];
+let cap=900,fill=1,prevFill=1,dtId=null,drag=false,sy=0,sf=0;
+const IT=8,IB=462,IR=IB-IT;
+
+function wy(){return IB-fill*IR}
+
+function render(){
+  const y=wy();
+  document.getElementById('wg').setAttribute('transform',`translate(0,${y})`);
+  document.getElementById('mlv').textContent=Math.round(fill*cap);
+  document.getElementById('pct').textContent=Math.round(fill*100)+'% full';
+  drawMarks(y);
+}
+
+function drawMarks(waterY){
+  const g=document.getElementById('gm');
+  g.innerHTML='';
+  const ns='http://www.w3.org/2000/svg';
+  [0.25,0.5,0.75].forEach(p=>{
+    const my=IB-p*IR;
+    const sub=my>waterY;
+    const tc=sub?'rgba(255,255,255,.68)':'rgba(50,100,138,.42)';
+    ['34,56','164,186'].forEach(pts=>{
+      const[x1,x2]=pts.split(',');
+      const l=document.createElementNS(ns,'line');
+      l.setAttribute('x1',x1);l.setAttribute('x2',x2);
+      l.setAttribute('y1',my);l.setAttribute('y2',my);
+      l.setAttribute('stroke',tc);l.setAttribute('stroke-width','1.2');
+      g.appendChild(l);
+    });
+    const t=document.createElementNS(ns,'text');
+    t.setAttribute('x','62');t.setAttribute('y',my+4);
+    t.setAttribute('font-size','11');t.setAttribute('fill',tc);
+    t.setAttribute('font-family','var(--font-sans)');
+    t.textContent=Math.round(p*cap)+'ml';
+    g.appendChild(t);
+  });
+}
+
+function showDelta(a,b){
+  const d=Math.round(b*cap)-Math.round(a*cap);
+  if(!d)return;
+  const el=document.getElementById('dl');
+  el.className='dl '+(d<0?'d':'a');
+  el.textContent=(d<0?'−':'+')+Math.abs(d)+' ml '+(d<0?'consumed':'added');
+  clearTimeout(dtId);
+  dtId=setTimeout(()=>{el.className='dl h'},3200);
+}
+
+const svg=document.getElementById('bsvg');
+svg.addEventListener('mousedown',e=>{drag=true;sy=e.clientY;sf=fill;e.preventDefault()});
+svg.addEventListener('touchstart',e=>{e.preventDefault();drag=true;sy=e.touches[0].clientY;sf=fill},{passive:false});
+window.addEventListener('mousemove',e=>{
+  if(!drag)return;
+  fill=Math.min(1,Math.max(0,sf-(e.clientY-sy)/310));
+  render();
+});
+window.addEventListener('touchmove',e=>{
+  if(!drag)return;
+  e.preventDefault();
+  fill=Math.min(1,Math.max(0,sf-(e.touches[0].clientY-sy)/310));
+  render();
+},{passive:false});
+window.addEventListener('mouseup',()=>{if(!drag)return;drag=false;showDelta(prevFill,fill);prevFill=fill});
+window.addEventListener('touchend',()=>{if(!drag)return;drag=false;showDelta(prevFill,fill);prevFill=fill});
+
+const ps=document.getElementById('ps');
+CAPS.forEach(c=>{
+  const d=document.createElement('div');
+  d.className='pi'+(c===cap?' act':'');
+  d.textContent=c+'ml';
+  d.onclick=()=>{
+    cap=c;
+    ps.querySelectorAll('.pi').forEach(x=>x.classList.remove('act'));
+    d.classList.add('act');
+    d.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
+    render();
+  };
+  ps.appendChild(d);
+});
+setTimeout(()=>ps.querySelector('.act')?.scrollIntoView({block:'nearest',inline:'center'}),100);
+render();
+</script>
