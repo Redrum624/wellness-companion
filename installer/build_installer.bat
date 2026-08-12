@@ -153,8 +153,12 @@ if exist "%APK%" (
         echo   [ERROR] android\gradlew.bat not found - cannot build the APK.
         exit /b 1
     )
+    :: Absolute path, not a bare "gradlew.bat": cmd does not reliably resolve a
+    :: batch file from the pushd'd directory (NoDefaultCurrentDirectoryInExePath
+    :: makes it fail outright), and this branch only runs on a clean clone where
+    :: the APK is absent — so the failure never showed up in an incremental build.
     pushd "%REPO_ROOT%\android"
-    call gradlew.bat assembleDebug --console=plain
+    call "%REPO_ROOT%\android\gradlew.bat" assembleDebug --console=plain
     set "GRADLE_RC=!ERRORLEVEL!"
     popd
     if not "!GRADLE_RC!"=="0" (
