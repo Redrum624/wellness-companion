@@ -139,6 +139,30 @@ gradlew.bat assembleDebug
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
+> **The released phone build is debug-signed.** It is built with `assembleDebug` and Android's
+> universally-known debug key, which means it is marked `debuggable`: anyone with USB access to the
+> phone while it is unlocked can read the app's data directory, including your entries. It is fine
+> for your own device; treat it as unsuitable for a phone you don't control.
+>
+> To build a properly signed release instead, create a keystore once and point an untracked
+> `android/keystore.properties` at it:
+>
+> ```bat
+> keytool -genkeypair -v -keystore wellness-release.jks -alias wellness ^
+>         -keyalg RSA -keysize 4096 -validity 10000
+> ```
+>
+> ```properties
+> storeFile=C:/path/to/wellness-release.jks
+> storePassword=...
+> keyAlias=wellness
+> keyPassword=...
+> ```
+>
+> Then `gradlew.bat assembleRelease`. The installer prefers `app-release.apk` when it exists and
+> falls back to the debug build with a warning otherwise. `keystore.properties`, `*.jks` and
+> `*.keystore` are gitignored — signing material must never be committed.
+
 **2. That's it** — the phone app works on its own. Stop here if you don't want the desktop half.
 
 **3. Optional: add the desktop app.** Download `Wellness Companion Setup <version>.exe` from the
@@ -168,8 +192,10 @@ instead (`192.168.1.42:9847`).
 
 **The pairing code is access control, not encryption.** It stops other devices on your network from
 reading or writing your data. It does not hide the contents from someone who can already observe
-your LAN traffic: sync runs over plain `ws://`, and neither database is encrypted at rest. Use it on
-networks you trust — [SECURITY.md](SECURITY.md) has the full picture.
+your LAN traffic: sync runs over plain `ws://`, and neither database is encrypted at rest. Nor does
+it protect the phone itself — the released build is debug-signed, so physical USB access to an
+unlocked device is enough to read the database. Use it on networks and devices you trust;
+[SECURITY.md](SECURITY.md) has the full picture.
 ## Building from source
 
 <details>
