@@ -6,7 +6,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -52,18 +55,31 @@ private val CRANE_FACETS = listOf(
     Facet(listOf(-0.12f to -0.08f, 0.04f to -0.90f, 0.20f to -0.02f), LIGHT, 1f),
 )
 
+// Unit-scale facet paths, built once — withTransform scales them per crane, so no
+// per-frame Path allocation during the drop animation.
+private val FACET_PATHS: List<Path> = CRANE_FACETS.map { facet ->
+    Path().apply {
+        moveTo(facet.xs[0], facet.ys[0])
+        for (j in 1 until facet.xs.size) lineTo(facet.xs[j], facet.ys[j])
+        close()
+    }
+}
+
 private data class CraneSlot(val x: Float, val y: Float, val rotation: Float, val flip: Boolean)
 
 // (yFrac, count, halfWidthFrac) — bowl rows bottom-up, then the mountain pyramid above the rim.
+// Row half-widths leave room for a crane's own extent (~0.074w with jitter and rotation)
+// inside the clip wall at that row's depth, so edge cranes lean on the glass instead of
+// being flat-cut by the clip (at most ~0.02w of a wingtip may tuck behind the wall).
 private val BOWL_ROWS = listOf(
-    Triple(0.855f, 3, 0.145f), Triple(0.775f, 4, 0.215f), Triple(0.695f, 5, 0.265f),
-    Triple(0.615f, 5, 0.295f), Triple(0.535f, 6, 0.310f),
+    Triple(0.855f, 3, 0.130f), Triple(0.775f, 4, 0.185f), Triple(0.695f, 5, 0.225f),
+    Triple(0.615f, 5, 0.245f), Triple(0.535f, 6, 0.252f),
 )
 private val MOUNTAIN_ROWS = listOf(
     Triple(0.435f, 5, 0.26f), Triple(0.355f, 4, 0.20f), Triple(0.28f, 3, 0.145f),
     Triple(0.21f, 2, 0.085f), Triple(0.15f, 1, 0.0f),
 )
-val BOWL_CAPACITY = BOWL_ROWS.sumOf { it.second }
+private val BOWL_CAPACITY = BOWL_ROWS.sumOf { it.second }
 private val MAIN_CAPACITY = BOWL_CAPACITY + MOUNTAIN_ROWS.sumOf { it.second }
 
 /** Deterministic per-index jitter so the heap looks organic but never reshuffles. */
@@ -107,10 +123,16 @@ fun CraneBowlCanvas(
     lastAddedIndex: Int = -1,
     modifier: Modifier = Modifier
 ) {
-    // New cranes drop in from above the rim and settle with a soft bounce.
+    // New cranes drop in from above the rim and settle with a soft bounce — but only for
+    // counts that increase while this screen is showing. The ViewModel's lastAddedIndex
+    // survives navigation, so without the lastSeenCount guard the last batch would
+    // re-drop on every screen re-entry.
     val drop = remember { Animatable(1f) }
+    var lastSeenCount by remember { mutableIntStateOf(-1) }
     LaunchedEffect(craneCount, lastAddedIndex) {
-        if (lastAddedIndex in 0 until craneCount) {
+        val isLiveIncrease = lastSeenCount in 0 until craneCount
+        lastSeenCount = craneCount
+        if (isLiveIncrease && lastAddedIndex in 0 until craneCount) {
             drop.snapTo(0f)
             drop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessLow))
         }
@@ -237,12 +259,8 @@ private fun DrawScope.drawCrane(
         rotate(rotDeg, Offset.Zero)
         scale(if (flip) -scale else scale, scale, Offset.Zero)
     }) {
-        for (facet in CRANE_FACETS) {
-            val p = Path()
-            p.moveTo(facet.xs[0], facet.ys[0])
-            for (j in 1 until facet.xs.size) p.lineTo(facet.xs[j], facet.ys[j])
-            p.close()
-            drawPath(p, shades[facet.shade], alpha = (facet.alpha * opacity).coerceIn(0f, 1f))
+        for ((i, facet) in CRANE_FACETS.withIndex()) {
+            drawPath(FACET_PATHS[i], shades[facet.shade], alpha = (facet.alpha * opacity).coerceIn(0f, 1f))
         }
     }
 }
