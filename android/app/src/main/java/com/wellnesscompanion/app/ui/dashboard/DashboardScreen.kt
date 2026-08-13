@@ -1,5 +1,14 @@
 package com.wellnesscompanion.app.ui.dashboard
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -11,21 +20,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -45,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.delay
 import com.wellnesscompanion.app.data.model.Category
 import com.wellnesscompanion.app.sync.SyncStatus
 import com.wellnesscompanion.app.sync.SyncViewModel
@@ -59,6 +73,19 @@ private val DashboardBgMid = Color(0xFFE8DDF2)
 private val DashboardBgBottom = Color(0xFFDCE8DA)
 private val GreetingColor = Color(0xFF3D3262)
 
+/** Label for the sync connect button, keyed off the target state of its AnimatedContent
+ *  so each transitioning instance (incoming/outgoing) renders its own status, not
+ *  whatever the live [SyncViewModel] state happens to be at recomposition time. */
+private fun syncLabelFor(status: SyncStatus): String = when (status) {
+    is SyncStatus.Idle -> "Sync"
+    is SyncStatus.Discovering -> "Searching..."
+    is SyncStatus.Connecting -> "Connecting..."
+    is SyncStatus.Syncing -> "Syncing..."
+    is SyncStatus.NeedsPairing -> "Enter code"
+    is SyncStatus.Done -> "✅ Done"
+    is SyncStatus.Error -> "❌ Error"
+}
+
 @Composable
 fun DashboardScreen(
     onCategoryClick: (Category) -> Unit,
@@ -71,6 +98,14 @@ fun DashboardScreen(
 
     val totalStreak = streaks.values.maxOrNull() ?: 0
     val categoriesLogged = streaks.count { it.value > 0 }
+
+    // Card entrance stagger — which categories have already played their entrance this
+    // dashboard visit. Hoisted above the LazyVerticalGrid (not remembered per grid item)
+    // so scrolling items out of and back into view doesn't replay the animation: items are
+    // disposed/recomposed by the lazy layout as they scroll, but this state lives in the
+    // screen's own composition and survives that churn. It plays again only on a fresh
+    // dashboard entry (new composable instance) — e.g. navigating away and back.
+    val enteredCategories = remember { mutableStateOf(emptySet<Category>()) }
 
     Box(
         modifier = Modifier
@@ -131,155 +166,168 @@ fun DashboardScreen(
                 )
             }
 
-            if (showSync) {
-                Spacer(modifier = Modifier.height(6.dp))
+            AnimatedVisibility(
+                visible = showSync,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                val isSyncing = syncStatus is SyncStatus.Discovering || syncStatus is SyncStatus.Connecting || syncStatus is SyncStatus.Syncing
-                val manualIp by syncViewModel.manualIp.collectAsState()
+                    val isSyncing = syncStatus is SyncStatus.Discovering || syncStatus is SyncStatus.Connecting || syncStatus is SyncStatus.Syncing
+                    val manualIp by syncViewModel.manualIp.collectAsState()
 
-                val syncLabel = when (syncStatus) {
-                    is SyncStatus.Idle -> "Sync"
-                    is SyncStatus.Discovering -> "Searching..."
-                    is SyncStatus.Connecting -> "Connecting..."
-                    is SyncStatus.Syncing -> "Syncing..."
-                    is SyncStatus.NeedsPairing -> "Enter code"
-                    is SyncStatus.Done -> "\u2705 Done"
-                    is SyncStatus.Error -> "\u274C Error"
-                }
-                val syncDetail = when (syncStatus) {
-                    is SyncStatus.Done -> (syncStatus as SyncStatus.Done).message
-                    is SyncStatus.Error -> (syncStatus as SyncStatus.Error).message
-                    is SyncStatus.NeedsPairing ->
-                        "Enter the pairing code shown in the PC app's sidebar"
-                    else -> null
-                }
+                    val syncDetail = when (syncStatus) {
+                        is SyncStatus.Done -> (syncStatus as SyncStatus.Done).message
+                        is SyncStatus.Error -> (syncStatus as SyncStatus.Error).message
+                        is SyncStatus.NeedsPairing ->
+                            "Enter the pairing code shown in the PC app's sidebar"
+                        else -> null
+                    }
 
-                // Pairing code. The PC refuses every request until this matches,
-                // so nothing leaves the phone before it is set.
-                val pairingCode by syncViewModel.pairingCode.collectAsState()
-                val isPaired by syncViewModel.isPaired.collectAsState()
+                    // Pairing code. The PC refuses every request until this matches,
+                    // so nothing leaves the phone before it is set.
+                    val pairingCode by syncViewModel.pairingCode.collectAsState()
+                    val isPaired by syncViewModel.isPaired.collectAsState()
 
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 20.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = pairingCode,
-                        onValueChange = { syncViewModel.setPairingCode(it) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.labelSmall.copy(
-                            color = GreetingColor,
-                            letterSpacing = 2.sp
-                        ),
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = 0.25f))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        decorationBox = { innerTextField ->
-                            if (pairingCode.isEmpty()) {
-                                Text(
-                                    "Pairing code from the PC",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = GreetingColor.copy(alpha = 0.4f)
+                            .padding(horizontal = 20.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = pairingCode,
+                            onValueChange = { syncViewModel.setPairingCode(it) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.labelSmall.copy(
+                                color = GreetingColor,
+                                letterSpacing = 2.sp
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.25f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            decorationBox = { innerTextField ->
+                                if (pairingCode.isEmpty()) {
+                                    Text(
+                                        "Pairing code from the PC",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = GreetingColor.copy(alpha = 0.4f)
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.35f))
+                                .clickable { syncViewModel.savePairingCode() }
+                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                        ) {
+                            if (isPaired) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = GreetingColor.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(12.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
                             }
-                            innerTextField()
+                            Text(
+                                text = if (isPaired) "Paired" else "Pair",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GreetingColor.copy(alpha = 0.6f)
+                            )
                         }
-                    )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = 0.35f))
-                            .clickable { syncViewModel.savePairingCode() }
-                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                            .padding(horizontal = 20.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (isPaired) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = null,
-                                tint = GreetingColor.copy(alpha = 0.6f),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
+                        // Manual IP input
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = manualIp,
+                            onValueChange = { syncViewModel.setManualIp(it) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.labelSmall.copy(color = GreetingColor),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.25f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            decorationBox = { innerTextField ->
+                                if (manualIp.isEmpty()) {
+                                    Text("PC IP (e.g. 192.168.1.5)", style = MaterialTheme.typography.labelSmall, color = GreetingColor.copy(alpha = 0.4f))
+                                }
+                                innerTextField()
+                            }
+                        )
+
+                        // Connect button
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = if (isSyncing) 0.2f else 0.35f))
+                                .clickable(enabled = !isSyncing) {
+                                    if (manualIp.isNotBlank()) syncViewModel.syncManual()
+                                    else syncViewModel.syncAuto()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                        ) {
+                            if (syncStatus is SyncStatus.Idle) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Sync,
+                                    contentDescription = null,
+                                    tint = GreetingColor.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            AnimatedContent(
+                                targetState = syncStatus,
+                                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                label = "syncStatusLabel"
+                            ) { state ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = syncLabelFor(state),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = GreetingColor.copy(alpha = 0.6f)
+                                    )
+                                    if (state is SyncStatus.Syncing) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp,
+                                            color = GreetingColor.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
                         }
+                    }
+                    if (syncDetail != null) {
                         Text(
-                            text = if (isPaired) "Paired" else "Pair",
+                            text = syncDetail,
                             style = MaterialTheme.typography.labelSmall,
-                            color = GreetingColor.copy(alpha = 0.6f)
+                            fontSize = 9.sp,
+                            color = GreetingColor.copy(alpha = 0.4f),
+                            modifier = Modifier.padding(start = 20.dp, top = 2.dp)
                         )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 20.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Manual IP input
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = manualIp,
-                        onValueChange = { syncViewModel.setManualIp(it) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.labelSmall.copy(color = GreetingColor),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = 0.25f))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        decorationBox = { innerTextField ->
-                            if (manualIp.isEmpty()) {
-                                Text("PC IP (e.g. 192.168.1.5)", style = MaterialTheme.typography.labelSmall, color = GreetingColor.copy(alpha = 0.4f))
-                            }
-                            innerTextField()
-                        }
-                    )
-
-                    // Connect button
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = if (isSyncing) 0.2f else 0.35f))
-                            .clickable(enabled = !isSyncing) {
-                                if (manualIp.isNotBlank()) syncViewModel.syncManual()
-                                else syncViewModel.syncAuto()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 9.dp)
-                    ) {
-                        if (syncStatus is SyncStatus.Idle) {
-                            Icon(
-                                imageVector = Icons.Rounded.Sync,
-                                contentDescription = null,
-                                tint = GreetingColor.copy(alpha = 0.6f),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                        Text(
-                            text = syncLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = GreetingColor.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-                if (syncDetail != null) {
-                    Text(
-                        text = syncDetail,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 9.sp,
-                        color = GreetingColor.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(start = 20.dp, top = 2.dp)
-                    )
                 }
             }
 
@@ -341,12 +389,27 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(Category.entries.toList()) { category ->
+                itemsIndexed(Category.entries.toList()) { index, category ->
+                    val alreadyEntered = category in enteredCategories.value
+                    val entrance = remember { Animatable(if (alreadyEntered) 1f else 0f) }
+                    LaunchedEffect(category) {
+                        if (!alreadyEntered) {
+                            // Mark as entered immediately (not after the animation finishes)
+                            // so a mid-stagger scroll that disposes and recomposes this item
+                            // can't restart the animation from scratch.
+                            enteredCategories.value = enteredCategories.value + category
+                            delay((index * 30L).coerceAtMost(400L))
+                            entrance.animateTo(1f, tween(220))
+                        }
+                    }
                     CategoryCard(
                         category = category,
                         summary = summaries[category] ?: "No data",
                         streak = streaks[category] ?: 0,
-                        onClick = { onCategoryClick(category) }
+                        onClick = { onCategoryClick(category) },
+                        modifier = Modifier
+                            .alpha(entrance.value)
+                            .offset(y = ((1f - entrance.value) * 12).dp)
                     )
                 }
             }

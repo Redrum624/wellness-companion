@@ -1,6 +1,13 @@
 package com.wellnesscompanion.app.ui.components
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,6 +54,10 @@ fun CategoryCard(
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
         label = "cardScale"
     )
 
@@ -130,14 +141,31 @@ fun CategoryCard(
                 lineHeight = 14.sp
             )
 
-            // Streak badge
+            // Streak badge \u2014 subtle infinite pulse once the streak is worth celebrating.
+            // Quiet cards (streak < 3) never allocate the infinite transition at all.
             if (streak > 0) {
                 Spacer(modifier = Modifier.height(3.dp))
+                val streakModifier = if (streak >= 3) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "streakPulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.06f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(2000),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "streakPulseScale"
+                    )
+                    Modifier.scale(pulseScale)
+                } else {
+                    Modifier
+                }
                 Text(
                     text = "\uD83D\uDD25 $streak",
                     fontSize = 10.sp,
                     color = textColor.copy(alpha = 0.4f),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    modifier = streakModifier
                 )
             }
         }
