@@ -39,8 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -136,16 +136,23 @@ fun ChoresScreen(
                             .clickable { viewModel.toggleTask(index) },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (checkScale > 0f) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .scale(checkScale)
-                            )
-                        }
+                        // Always composed — an underdamped spring can overshoot below 0
+                        // while settling on uncheck, so visibility must not be gated on
+                        // the animated value itself (that caused decompose/recompose
+                        // flicker). Clamp the rendered scale instead; scale 0 already
+                        // draws nothing.
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .graphicsLayer {
+                                    val clamped = checkScale.coerceAtLeast(0f)
+                                    scaleX = clamped
+                                    scaleY = clamped
+                                }
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(10.dp))
