@@ -1,5 +1,8 @@
 package com.wellnesscompanion.app.ui.navigation
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,18 +55,23 @@ fun NavigationDots(
                 Color.White.copy(alpha = 0.4f)
             }
 
+            val dotWidth by animateDpAsState(
+                targetValue = if (isActive) 20.dp else 7.dp,
+                animationSpec = spring(dampingRatio = 0.7f),
+                label = "dotWidth"
+            )
+            val dotFillColor by animateColorAsState(
+                targetValue = dotColor,
+                label = "dotFillColor"
+            )
+
             Box(
                 modifier = Modifier
                     .padding(start = 6.dp)
-                    .then(
-                        if (isActive) {
-                            Modifier.width(20.dp).height(7.dp)
-                        } else {
-                            Modifier.size(7.dp)
-                        }
-                    )
+                    .width(dotWidth)
+                    .height(7.dp)
                     .clip(if (isActive) RoundedCornerShape(4.dp) else CircleShape)
-                    .background(dotColor)
+                    .background(dotFillColor)
                     .clickable { onDotTap(index) }
             )
         }
