@@ -1,162 +1,259 @@
 package com.wellnesscompanion.app.ui.hobbies
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import kotlin.math.PI
-import kotlin.math.cos
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
+import kotlin.math.floor
+import kotlin.math.min
 import kotlin.math.sin
 
-/** Pre-computed crane positions for three stages: inside bowl, mountain, overflow */
-private data class CraneSlot(val x: Float, val y: Float, val rotation: Float)
+/**
+ * A glass bowl that fills with origami cranes: one crane per 5 minutes of hobby time.
+ * The first 23 land inside the bowl, the next 15 pile up above the rim, and any more
+ * tumble onto the ground beside it. Cranes inside the bowl are clipped to its interior
+ * (open at the top), so nothing can poke through the glass.
+ */
 
-// Bowl positions (cranes 0-18): fill inside the bowl, bottom to top
-private val bowlSlots = listOf(
-    CraneSlot(0.19f, 0.88f, 8f), CraneSlot(0.35f, 0.90f, -15f), CraneSlot(0.52f, 0.88f, 5f),
-    CraneSlot(0.68f, 0.90f, -10f), CraneSlot(0.82f, 0.88f, 18f),
-    CraneSlot(0.23f, 0.80f, -20f), CraneSlot(0.40f, 0.81f, 12f), CraneSlot(0.57f, 0.79f, -8f),
-    CraneSlot(0.72f, 0.81f, 22f), CraneSlot(0.80f, 0.78f, -14f),
-    CraneSlot(0.20f, 0.72f, 16f), CraneSlot(0.36f, 0.73f, -22f), CraneSlot(0.52f, 0.71f, 8f),
-    CraneSlot(0.68f, 0.73f, -15f), CraneSlot(0.82f, 0.72f, 20f),
-    CraneSlot(0.25f, 0.65f, -10f), CraneSlot(0.43f, 0.66f, 18f), CraneSlot(0.60f, 0.64f, -6f),
-    CraneSlot(0.75f, 0.66f, 14f)
+private val GlassEdge = Color(0xFF72243E) // HobbiesText plum, used at low alpha
+
+/** One facet of the origami crane, in unit coordinates (y down, facing left). */
+private class Facet(points: List<Pair<Float, Float>>, val shade: Int, val alpha: Float) {
+    val xs = FloatArray(points.size) { points[it].first }
+    val ys = FloatArray(points.size) { points[it].second }
+}
+
+private const val LIGHT = 0
+private const val BASE = 1
+private const val MID = 2
+private const val DARK = 3
+
+// Drawn back-to-front: tail, neck, head, far wing, body, near wing.
+private val CRANE_FACETS = listOf(
+    Facet(listOf(0.30f to -0.02f, 0.55f to -0.32f, 0.36f to 0.10f), MID, 1f),
+    Facet(listOf(-0.28f to -0.02f, -0.50f to -0.44f, -0.22f to 0.06f), MID, 1f),
+    Facet(listOf(-0.50f to -0.44f, -0.63f to -0.39f, -0.47f to -0.34f), DARK, 1f),
+    Facet(listOf(-0.02f to -0.10f, 0.32f to -0.74f, 0.30f to -0.02f), DARK, 0.9f),
+    Facet(listOf(-0.30f to 0.02f, 0.02f to -0.14f, 0.34f to 0.02f, 0.04f to 0.20f), BASE, 1f),
+    Facet(listOf(-0.12f to -0.08f, 0.04f to -0.90f, 0.20f to -0.02f), LIGHT, 1f),
 )
 
-// Mountain positions (cranes 19-35): pyramid above the bowl rim
-private val mountainSlots = listOf(
-    CraneSlot(0.19f, 0.56f, 12f), CraneSlot(0.36f, 0.55f, -18f), CraneSlot(0.52f, 0.56f, 8f),
-    CraneSlot(0.68f, 0.55f, -12f), CraneSlot(0.82f, 0.56f, 16f),
-    CraneSlot(0.25f, 0.48f, -14f), CraneSlot(0.42f, 0.47f, 20f), CraneSlot(0.58f, 0.48f, -8f),
-    CraneSlot(0.74f, 0.47f, 15f),
-    CraneSlot(0.32f, 0.40f, 10f), CraneSlot(0.50f, 0.39f, -16f), CraneSlot(0.65f, 0.40f, 22f),
-    CraneSlot(0.38f, 0.33f, -10f), CraneSlot(0.55f, 0.32f, 14f), CraneSlot(0.70f, 0.33f, -18f),
-    CraneSlot(0.44f, 0.26f, 8f), CraneSlot(0.60f, 0.25f, -12f)
-)
+private data class CraneSlot(val x: Float, val y: Float, val rotation: Float, val flip: Boolean)
 
-// Overflow positions (cranes 36+): spill to left and right of the bowl
-private val overflowLeftSlots = listOf(
-    CraneSlot(0.06f, 0.92f, 55f), CraneSlot(0.03f, 0.86f, -42f),
-    CraneSlot(0.09f, 0.80f, 68f), CraneSlot(0.01f, 0.96f, -50f), CraneSlot(0.07f, 0.98f, 38f)
+// (yFrac, count, halfWidthFrac) — bowl rows bottom-up, then the mountain pyramid above the rim.
+private val BOWL_ROWS = listOf(
+    Triple(0.855f, 3, 0.145f), Triple(0.775f, 4, 0.215f), Triple(0.695f, 5, 0.265f),
+    Triple(0.615f, 5, 0.295f), Triple(0.535f, 6, 0.310f),
 )
-private val overflowRightSlots = listOf(
-    CraneSlot(0.91f, 0.91f, -55f), CraneSlot(0.95f, 0.85f, 42f),
-    CraneSlot(0.88f, 0.79f, -68f), CraneSlot(0.97f, 0.95f, 50f), CraneSlot(0.91f, 0.98f, -38f)
+private val MOUNTAIN_ROWS = listOf(
+    Triple(0.435f, 5, 0.26f), Triple(0.355f, 4, 0.20f), Triple(0.28f, 3, 0.145f),
+    Triple(0.21f, 2, 0.085f), Triple(0.15f, 1, 0.0f),
 )
+val BOWL_CAPACITY = BOWL_ROWS.sumOf { it.second }
+private val MAIN_CAPACITY = BOWL_CAPACITY + MOUNTAIN_ROWS.sumOf { it.second }
 
-private fun getSlot(index: Int): CraneSlot {
-    val allMain = bowlSlots + mountainSlots
-    if (index < allMain.size) return allMain[index]
-    val overflowIdx = index - allMain.size
-    val isLeft = overflowIdx % 2 == 0
-    val sideIdx = overflowIdx / 2
-    return if (isLeft) {
-        overflowLeftSlots.getOrElse(sideIdx) { CraneSlot(0.05f, 0.92f, 55f) }
-    } else {
-        overflowRightSlots.getOrElse(sideIdx) { CraneSlot(0.93f, 0.92f, -55f) }
+/** Deterministic per-index jitter so the heap looks organic but never reshuffles. */
+private fun fracHash(i: Int, salt: Int): Float {
+    val x = sin(i * 127.1 + salt * 311.7) * 43758.5453
+    return (x - floor(x)).toFloat()
+}
+
+private fun buildMainSlots(w: Float, h: Float): List<CraneSlot> {
+    val cx = 0.5f * w
+    val slots = ArrayList<CraneSlot>(MAIN_CAPACITY)
+    var idx = 0
+    for ((yf, n, hwf) in BOWL_ROWS + MOUNTAIN_ROWS) {
+        // Fill each row from the center outward so a partial row reads as a heap.
+        val order = (0 until n).sortedBy { kotlin.math.abs(it - (n - 1) / 2f) }
+        for (k in order) {
+            val x = if (n == 1) cx else cx - hwf * w + (2 * hwf * w) * k / (n - 1)
+            val jx = (fracHash(idx, 1) - 0.5f) * 0.022f * w
+            val jy = (fracHash(idx, 2) - 0.5f) * 0.018f * h
+            val rot = (fracHash(idx, 3) - 0.5f) * 36f
+            slots.add(CraneSlot(x + jx, yf * h + jy, rot, fracHash(idx, 4) > 0.5f))
+            idx++
+        }
     }
+    return slots
+}
+
+private fun overflowSlot(k: Int, w: Float, h: Float): CraneSlot {
+    val side = if (k % 2 == 0) -1f else 1f
+    val step = min(k / 2, 7)
+    val x = 0.5f * w + side * (0.415f * w + step * 0.062f * w + (fracHash(k, 5) - 0.5f) * 0.02f * w)
+    val y = 0.895f * h - fracHash(k, 6) * 0.012f * h
+    val rot = side * (34f + fracHash(k, 7) * 26f)
+    return CraneSlot(x, y, rot, k % 2 == 1)
 }
 
 @Composable
 fun CraneBowlCanvas(
     craneCount: Int,
     craneColors: List<String>,
+    lastAddedIndex: Int = -1,
     modifier: Modifier = Modifier
 ) {
-    val pageColor = Color(0xFFEACCE0)
+    // New cranes drop in from above the rim and settle with a soft bounce.
+    val drop = remember { Animatable(1f) }
+    LaunchedEffect(craneCount, lastAddedIndex) {
+        if (lastAddedIndex in 0 until craneCount) {
+            drop.snapTo(0f)
+            drop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessLow))
+        }
+    }
 
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
+        val cx = 0.5f * w
+        val rimY = 0.46f * h
+        val rw = 0.335f * w
+        val groundY = 0.945f * h
+        val craneScale = 0.096f * w
 
-        // Draw bowl background (opaque fill behind cranes)
-        val bowlPath = Path().apply {
-            moveTo(w * 0.065f, h * 0.58f)
-            quadraticTo(w * 0.03f, h * 0.72f, w * 0.10f, h * 0.84f)
-            quadraticTo(w * 0.20f, h * 0.95f, w * 0.50f, h * 0.96f)
-            quadraticTo(w * 0.80f, h * 0.95f, w * 0.90f, h * 0.84f)
-            quadraticTo(w * 0.97f, h * 0.72f, w * 0.935f, h * 0.58f)
-            close()
-        }
-        drawPath(bowlPath, pageColor)
+        val silhouette = bowlSilhouette(w, h)
+        val interior = bowlInterior(w, h)
 
-        // Draw cranes
-        for (i in 0 until craneCount) {
-            val slot = getSlot(i)
-            val colorHex = craneColors.getOrElse(i) { "#AFA9EC" }
-            val color = parseHexColor(colorHex)
-            val darkerColor = color.copy(
-                red = (color.red * 0.7f).coerceIn(0f, 1f),
-                green = (color.green * 0.7f).coerceIn(0f, 1f),
-                blue = (color.blue * 0.7f).coerceIn(0f, 1f)
-            )
-            val cx = slot.x * w
-            val cy = slot.y * h
-            val isOverflow = i >= bowlSlots.size + mountainSlots.size
-            val opacity = if (isOverflow) 0.75f else 1f
-            drawCrane(cx, cy, 127f, slot.rotation, color, darkerColor, opacity)
-        }
-
-        // Draw bowl outline on top
-        drawPath(bowlPath, Color(0xFF2A5A80).copy(alpha = 0.18f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
-
-        // Bowl rim shine
-        drawLine(
-            Color.White.copy(alpha = 0.25f),
-            Offset(w * 0.10f, h * 0.60f),
-            Offset(w * 0.30f, h * 0.72f),
-            strokeWidth = 2f
+        // Ground shadow
+        drawOval(
+            GlassEdge.copy(alpha = 0.10f),
+            topLeft = Offset(cx - 0.36f * w, groundY - 0.022f * h),
+            size = Size(0.72f * w, 0.044f * h)
         )
+
+        // Glass, seen from behind the cranes
+        drawPath(silhouette, Color.White.copy(alpha = 0.235f))
+
+        val slots = buildMainSlots(w, h)
+        val dropP = drop.value
+
+        fun drawAt(i: Int, slot: CraneSlot, scale: Float, opacity: Float) {
+            val animating = lastAddedIndex in 0..i && dropP < 1f
+            val cy = if (animating) slot.y - (1f - dropP) * 0.32f * h else slot.y
+            val rot = if (animating) slot.rotation + (1f - dropP) * (if (slot.flip) -18f else 18f) else slot.rotation
+            val alpha = if (animating) opacity * (0.4f + 0.6f * dropP) else opacity
+            drawCrane(slot.x, cy, scale, rot, slot.flip, hexColor(craneColors.getOrElse(i) { "#AFA9EC" }), alpha)
+        }
+
+        // Cranes inside the bowl — clipped to the interior, which is open above the rim,
+        // so a crane can never poke through the glass bottom or walls.
+        clipPath(interior) {
+            for (i in 0 until min(craneCount, BOWL_CAPACITY)) drawAt(i, slots[i], craneScale, 1f)
+        }
+
+        // Glass front: sheen, edge, rim, highlight
+        drawPath(silhouette, Color.White.copy(alpha = 0.10f))
+        drawPath(silhouette, Color.White.copy(alpha = 0.65f), style = Stroke(0.0035f * w))
+        drawPath(silhouette, GlassEdge.copy(alpha = 0.235f), style = Stroke(0.0016f * w))
+        val rimRy = 0.030f * h
+        drawOval(
+            Color.White.copy(alpha = 0.59f),
+            topLeft = Offset(cx - rw, rimY - rimRy),
+            size = Size(2 * rw, 2 * rimRy),
+            style = Stroke(0.0030f * w)
+        )
+        val highlight = Path().apply {
+            moveTo(cx - rw * 0.86f, rimY + 0.06f * h)
+            quadraticTo(cx - rw * 0.92f, 0.68f * h, cx - rw * 0.55f, 0.83f * h)
+        }
+        drawPath(highlight, Color.White.copy(alpha = 0.47f), style = Stroke(0.006f * w, cap = StrokeCap.Round))
+
+        // The pile rising above the rim sits in front of the glass edge
+        for (i in BOWL_CAPACITY until min(craneCount, MAIN_CAPACITY)) drawAt(i, slots[i], craneScale, 1f)
+
+        // Overflow tumbles onto the ground beside the bowl
+        if (craneCount > MAIN_CAPACITY) {
+            clipRect(0f, 0f, w, groundY) {
+                for (i in MAIN_CAPACITY until craneCount) {
+                    drawAt(i, overflowSlot(i - MAIN_CAPACITY, w, h), craneScale * 0.92f, 0.95f)
+                }
+            }
+        }
+    }
+}
+
+private fun bowlSilhouette(w: Float, h: Float): Path {
+    val cx = 0.5f * w
+    val rimY = 0.46f * h
+    val rw = 0.335f * w
+    val botY = 0.925f * h
+    val footHw = 0.135f * w
+    return Path().apply {
+        moveTo(cx - rw, rimY)
+        cubicTo(cx - rw - 0.015f * w, 0.70f * h, cx - 0.30f * w, 0.875f * h, cx - footHw, botY)
+        quadraticTo(cx, botY + 0.022f * h, cx + footHw, botY)
+        cubicTo(cx + 0.30f * w, 0.875f * h, cx + rw + 0.015f * w, 0.70f * h, cx + rw, rimY)
+        close()
+    }
+}
+
+/** The bowl's inside, inset from the walls, extended upward as an open column. */
+private fun bowlInterior(w: Float, h: Float): Path {
+    val cx = 0.5f * w
+    val rimY = 0.46f * h
+    val rw = 0.335f * w
+    val k = 0.95f // wall inset
+    fun ix(x: Float) = cx + (x - cx) * k
+    fun iy(y: Float) = rimY + (y - rimY) * k
+    val botY = 0.925f * h
+    val footHw = 0.135f * w
+    return Path().apply {
+        moveTo(ix(cx - rw), rimY)
+        cubicTo(ix(cx - rw - 0.015f * w), iy(0.70f * h), ix(cx - 0.30f * w), iy(0.875f * h), ix(cx - footHw), iy(botY))
+        quadraticTo(cx, iy(botY + 0.022f * h), ix(cx + footHw), iy(botY))
+        cubicTo(ix(cx + 0.30f * w), iy(0.875f * h), ix(cx + rw + 0.015f * w), iy(0.70f * h), ix(cx + rw), rimY)
+        lineTo(ix(cx + rw), 0f)
+        lineTo(ix(cx - rw), 0f)
+        close()
     }
 }
 
 private fun DrawScope.drawCrane(
-    cx: Float, cy: Float, scale: Float, rotDeg: Float,
-    color: Color, darkColor: Color, opacity: Float
+    cx: Float, cy: Float, scale: Float, rotDeg: Float, flip: Boolean,
+    color: Color, opacity: Float
 ) {
-    val r = rotDeg * PI.toFloat() / 180f
-    val co = cos(r)
-    val si = sin(r)
-    val s = scale
-
-    fun t(px: Float, py: Float): Offset {
-        val x = px * s
-        val y = py * s
-        return Offset(cx + x * co - y * si, cy + x * si + y * co)
-    }
-
-    fun drawPoly(points: List<Pair<Float, Float>>, fillColor: Color, alpha: Float) {
-        if (points.size < 3) return
-        val path = Path().apply {
-            val first = t(points[0].first, points[0].second)
-            moveTo(first.x, first.y)
-            for (i in 1 until points.size) {
-                val p = t(points[i].first, points[i].second)
-                lineTo(p.x, p.y)
-            }
-            close()
+    val shades = arrayOf(
+        lerpToWhite(color, 0.20f),
+        color,
+        shadeOf(color, 0.78f),
+        shadeOf(color, 0.55f),
+    )
+    withTransform({
+        translate(cx, cy)
+        rotate(rotDeg, Offset.Zero)
+        scale(if (flip) -scale else scale, scale, Offset.Zero)
+    }) {
+        for (facet in CRANE_FACETS) {
+            val p = Path()
+            p.moveTo(facet.xs[0], facet.ys[0])
+            for (j in 1 until facet.xs.size) p.lineTo(facet.xs[j], facet.ys[j])
+            p.close()
+            drawPath(p, shades[facet.shade], alpha = (facet.alpha * opacity).coerceIn(0f, 1f))
         }
-        drawPath(path, fillColor.copy(alpha = (fillColor.alpha * alpha * opacity).coerceIn(0f, 1f)))
     }
-
-    // Wing 1 (left front)
-    drawPoly(listOf(0.05f to -0.12f, -0.38f to -0.95f, -0.32f to -0.05f), color, 1f)
-    // Wing 1 (left back)
-    drawPoly(listOf(0.05f to -0.12f, -0.38f to -0.95f, 0.0f to -0.25f), darkColor, 0.82f)
-    // Wing 1 (right front)
-    drawPoly(listOf(0.05f to -0.12f, 0.48f to -0.82f, 0.35f to -0.05f), color, 0.82f)
-    // Wing 1 (right back)
-    drawPoly(listOf(0.05f to -0.12f, 0.48f to -0.82f, 0.55f to -0.25f), darkColor, 0.68f)
-    // Body
-    drawPoly(listOf(-0.32f to -0.05f, 0.05f to -0.12f, 0.35f to -0.05f, 0.12f to 0.22f, -0.18f to 0.18f), color, 0.68f)
-    // Neck
-    drawPoly(listOf(-0.18f to 0.18f, 0.12f to 0.22f, 0.05f to 0.32f, -0.1f to 0.28f), darkColor, 0.55f)
 }
 
-private fun parseHexColor(hex: String): Color {
+private fun lerpToWhite(c: Color, t: Float) = Color(
+    c.red + (1f - c.red) * t, c.green + (1f - c.green) * t, c.blue + (1f - c.blue) * t, c.alpha
+)
+
+private fun shadeOf(c: Color, f: Float) = Color(c.red * f, c.green * f, c.blue * f, c.alpha)
+
+private fun hexColor(hex: String): Color {
     val cleaned = hex.removePrefix("#")
     return try {
         Color(android.graphics.Color.parseColor("#$cleaned"))

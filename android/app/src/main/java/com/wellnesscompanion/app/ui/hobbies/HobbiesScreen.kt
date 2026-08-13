@@ -53,6 +53,7 @@ fun HobbiesScreen(
     val totalMinutes by viewModel.totalMinutesToday.collectAsState()
     val craneCount by viewModel.craneCount.collectAsState()
     val craneColors by viewModel.craneColors.collectAsState()
+    val lastAddedCraneIndex by viewModel.lastAddedCraneIndex.collectAsState()
     var showAddHobby by remember { mutableStateOf(false) }
     var newHobbyName by remember { mutableStateOf("") }
     var selectedColorIdx by remember { mutableIntStateOf(0) }
@@ -79,6 +80,7 @@ fun HobbiesScreen(
         CraneBowlCanvas(
             craneCount = craneCount,
             craneColors = craneColors,
+            lastAddedIndex = lastAddedCraneIndex,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(280.dp)
