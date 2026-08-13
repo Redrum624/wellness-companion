@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { RotateCcw } from 'lucide-react'
 import PageLayout from '../components/PageLayout'
 import QuickButtons from '../components/QuickButtons'
 import { categoryColors } from '../styles/theme'
@@ -76,9 +77,10 @@ export default function WaterPage() {
         <button onClick={logRefill} style={{
           border: 'none', borderRadius: 10, padding: '8px 14px',
           background: 'rgba(255,255,255,0.4)', color: colors.text,
-          fontSize: 13, cursor: 'pointer', fontFamily: 'inherit'
+          fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+          display: 'flex', alignItems: 'center', gap: 6
         }}>
-          🔄 Refill
+          <RotateCcw size={16} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /> Refill
         </button>
       </div>
 

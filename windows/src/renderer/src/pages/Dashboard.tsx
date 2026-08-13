@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { subDays, format } from 'date-fns'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import CategoryCard from '../components/CategoryCard'
 import CalendarHeatmap from '../components/CalendarHeatmap'
 import Timeline from '../components/Timeline'
@@ -113,11 +114,11 @@ export default function Dashboard() {
         borderRadius: 14, padding: 16
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <button onClick={goPrev} style={navBtnStyle}>←</button>
+          <button onClick={goPrev} style={navBtnStyle}><ChevronLeft size={18} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /></button>
           <span style={{ fontSize: 13, color: '#3D3262', fontWeight: 500, flex: 1, textAlign: 'center' }}>
             {isToday ? 'Today' : formatDate(date)}
           </span>
-          <button onClick={goNext} style={navBtnStyle}>→</button>
+          <button onClick={goNext} style={navBtnStyle}><ChevronRight size={18} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /></button>
           {!isToday && <button onClick={goToday} style={navBtnStyle}>Today</button>}
         </div>
         <Timeline

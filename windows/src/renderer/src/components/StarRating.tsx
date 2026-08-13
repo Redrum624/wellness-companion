@@ -1,3 +1,5 @@
+import { Star } from 'lucide-react'
+
 interface Props {
   value: number
   onChange: (value: number) => void
@@ -13,12 +15,10 @@ export default function StarRating({ value, onChange, color }: Props) {
           onClick={() => onChange(star)}
           style={{
             border: 'none', background: 'none', cursor: 'pointer',
-            fontSize: 24, padding: 2,
-            opacity: star <= value ? 1 : 0.25,
-            filter: star <= value ? 'none' : 'grayscale(1)'
+            padding: 2
           }}
         >
-          ⭐
+          <Star size={18} strokeWidth={2} fill={star <= value ? 'currentColor' : 'none'} />
         </button>
       ))}
     </div>

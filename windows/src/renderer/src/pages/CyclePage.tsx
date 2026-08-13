@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { format, subDays, addDays, startOfMonth, endOfMonth, startOfWeek, addMonths, subMonths, differenceInCalendarDays, parseISO, isSameDay } from 'date-fns'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import PageLayout from '../components/PageLayout'
 import { categoryColors } from '../styles/theme'
 import { useDateNav } from '../hooks/useDateNav'
@@ -370,13 +371,13 @@ export default function CyclePage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <button onClick={() => setCalMonth(m => subMonths(m, 1))} style={{
             border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: colors.text, padding: '4px 8px'
-          }}>&lt;</button>
+          }}><ChevronLeft size={18} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /></button>
           <div style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
             {format(calMonth, 'MMMM yyyy')}
           </div>
           <button onClick={() => setCalMonth(m => addMonths(m, 1))} style={{
             border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: colors.text, padding: '4px 8px'
-          }}>&gt;</button>
+          }}><ChevronRight size={18} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /></button>
         </div>
         <CycleCalendar
           month={calMonth}

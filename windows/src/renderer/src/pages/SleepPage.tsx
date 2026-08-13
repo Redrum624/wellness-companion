@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { MoveRight, X, Check } from 'lucide-react'
 import PageLayout from '../components/PageLayout'
 import { categoryColors } from '../styles/theme'
 import { useDateNav } from '../hooks/useDateNav'
@@ -55,7 +56,7 @@ export default function SleepPage() {
       {/* Time inputs */}
       <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginBottom: 20 }}>
         <TimeInput label="Bedtime" value={bedtime} onChange={setBedtime} />
-        <span style={{ color: `${colors.text}50`, paddingTop: 20 }}>→</span>
+        <span style={{ color: `${colors.text}50`, paddingTop: 20 }}><MoveRight size={16} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /></span>
         <TimeInput label="Wake up" value={wakeTime} onChange={setWakeTime} />
       </div>
 
@@ -97,7 +98,7 @@ export default function SleepPage() {
             <span style={{ fontSize: 13, color: '#F0997B' }}>{w}</span>
             <button onClick={() => setWakeUps(wakeUps.filter((_, j) => j !== i))} style={{
               border: 'none', background: 'none', color: `${colors.text}50`, cursor: 'pointer', fontSize: 13
-            }}>✕</button>
+            }}><X size={16} strokeWidth={2} style={{ verticalAlign: 'text-bottom' }} /></button>
           </div>
         ))}
       </div>
@@ -109,7 +110,9 @@ export default function SleepPage() {
           fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit'
         }}>Save sleep log</button>
       ) : (
-        <div style={{ textAlign: 'center', fontSize: 14, color: `${colors.text}70` }}>Sleep logged ✓</div>
+        <div style={{ textAlign: 'center', fontSize: 14, color: `${colors.text}70`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+          Sleep logged <Check size={16} strokeWidth={2} />
+        </div>
       )}
     </PageLayout>
   )

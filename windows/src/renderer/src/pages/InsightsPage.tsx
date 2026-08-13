@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { subDays, format } from 'date-fns'
+import { NotebookPen, Search, BarChart3 } from 'lucide-react'
 import { useDatabase, useLlm } from '../hooks/useDatabase'
 import { buildWeeklyPortraitPrompt, buildChatPrompt, buildPatternDetectionPrompt, buildMonthlyDeepDivePrompt } from '../lib/prompts'
 import type { Entry } from '../types/entry'
@@ -121,9 +122,9 @@ export default function InsightsPage() {
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {[
-          { label: '\uD83D\uDCDD Weekly Portrait', action: generatePortrait },
-          { label: '\uD83D\uDD0D Find Patterns', action: detectPatterns },
-          { label: '\uD83D\uDCCA Monthly Deep Dive', action: monthlyDeepDive }
+          { label: 'Weekly Portrait', Icon: NotebookPen, action: generatePortrait },
+          { label: 'Find Patterns', Icon: Search, action: detectPatterns },
+          { label: 'Monthly Deep Dive', Icon: BarChart3, action: monthlyDeepDive }
         ].map(btn => (
           <button
             key={btn.label}
@@ -133,9 +134,11 @@ export default function InsightsPage() {
               border: 'none', borderRadius: 14, padding: '10px 18px',
               background: isGenerating ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.5)',
               color: '#3D3262', fontSize: 13, fontWeight: 500,
-              cursor: isGenerating ? 'default' : 'pointer', fontFamily: 'inherit'
+              cursor: isGenerating ? 'default' : 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 6
             }}
           >
+            <btn.Icon size={16} strokeWidth={2} />
             {btn.label}
           </button>
         ))}
