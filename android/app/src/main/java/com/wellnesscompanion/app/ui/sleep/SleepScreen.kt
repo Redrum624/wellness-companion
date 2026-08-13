@@ -60,7 +60,7 @@ fun SleepScreen(
     var showCelebration by remember { mutableStateOf(false) }
     var goalWasReached by remember { mutableStateOf(false) }
 
-    LaunchedEffect(saved) {
+    LaunchedEffect(saved, totalHours) {
         if (saved && totalHours >= DailyGoals.SLEEP_MIN_HOURS && !goalWasReached) {
             goalWasReached = true
             showCelebration = true
