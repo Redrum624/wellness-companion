@@ -1,9 +1,14 @@
 package com.wellnesscompanion.app.ui.sleep
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -21,6 +26,12 @@ fun SleepQualityBar(
 ) {
     val sleepColor = Color(0xFFAEA9EC).copy(alpha = 0.45f)
     val wakeColor = Color(0xFFF0997B).copy(alpha = 0.5f)
+
+    // Grow-in: sleep bar and wake markers scale in from 0 width on first composition.
+    val growth = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        growth.animateTo(1f, animationSpec = tween(600, easing = FastOutSlowInEasing))
+    }
 
     Canvas(
         modifier = modifier
@@ -53,7 +64,7 @@ fun SleepQualityBar(
         drawRoundRect(
             sleepColor,
             cornerRadius = CornerRadius(h / 2, h / 2),
-            size = Size(w, h)
+            size = Size(w * growth.value, h)
         )
 
         // Draw wake-up markers
@@ -65,7 +76,7 @@ fun SleepQualityBar(
             }
             val fraction = offset.toFloat() / totalMinutes.toFloat()
             val x = fraction * w
-            val markerWidth = w * 0.04f // Each wake-up is ~4% of the bar
+            val markerWidth = w * 0.04f * growth.value // Each wake-up is ~4% of the bar
 
             drawRoundRect(
                 wakeColor,

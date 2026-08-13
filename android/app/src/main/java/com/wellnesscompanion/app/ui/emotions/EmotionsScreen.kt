@@ -1,5 +1,9 @@
 package com.wellnesscompanion.app.ui.emotions
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -91,12 +95,24 @@ fun EmotionsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable { viewModel.selectMood(mood.key) }
                 ) {
+                    val tileScale by animateFloatAsState(
+                        targetValue = if (isSelected) 1.08f else 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "moodTileScale"
+                    )
+                    val tileColor by animateColorAsState(
+                        targetValue = if (isSelected) mood.color else mood.color.copy(alpha = 0.7f),
+                        label = "moodTileColor"
+                    )
                     Box(
                         modifier = Modifier
                             .size(48.dp)
-                            .scale(if (isSelected) 1.15f else 1f)
+                            .scale(tileScale)
                             .clip(CircleShape)
-                            .background(mood.color)
+                            .background(tileColor)
                             .then(
                                 if (isSelected) Modifier.border(2.dp, EmotionsText, CircleShape)
                                 else Modifier

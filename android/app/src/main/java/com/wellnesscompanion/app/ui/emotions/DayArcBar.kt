@@ -1,9 +1,14 @@
 package com.wellnesscompanion.app.ui.emotions
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -25,6 +30,12 @@ fun DayArcBar(
     entries: List<EmotionEntry>,
     modifier: Modifier = Modifier
 ) {
+    // Grow-in: segments sweep in from 0 width on first composition.
+    val growth = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        growth.animateTo(1f, animationSpec = tween(600, easing = FastOutSlowInEasing))
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -70,7 +81,7 @@ fun DayArcBar(
                 drawRect(
                     color,
                     topLeft = Offset(x, 0f),
-                    size = Size(segW, h)
+                    size = Size(segW * growth.value, h)
                 )
             }
         }

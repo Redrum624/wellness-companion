@@ -1,5 +1,10 @@
 package com.wellnesscompanion.app.ui.chores
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -96,69 +102,82 @@ fun ChoresScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Task list
-        tasks.forEachIndexed { index, task ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 3.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.White.copy(alpha = if (task.completed) 0.2f else 0.35f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Checkbox
-                Box(
+        // Task list (plain Column, not lazy — animate overall size so
+        // completed-task reordering resizes smoothly)
+        Column(modifier = Modifier.animateContentSize()) {
+            tasks.forEachIndexed { index, task ->
+                Row(
                     modifier = Modifier
-                        .size(22.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (task.completed) AccentTeal else Color.Transparent)
-                        .then(
-                            if (!task.completed) Modifier.background(Color.White.copy(alpha = 0.3f))
-                            else Modifier
-                        )
-                        .clickable { viewModel.toggleTask(index) },
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = if (task.completed) 0.2f else 0.35f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (task.completed) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Task name
-                Text(
-                    task.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (task.completed) ChoresText.copy(alpha = 0.4f) else ChoresText,
-                    textDecoration = if (task.completed) TextDecoration.LineThrough else TextDecoration.None,
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Time + timer
-                if (task.timeSpentMin != null && task.timeSpentMin > 0) {
-                    Text(
-                        "${task.timeSpentMin} min",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ChoresText.copy(alpha = 0.4f)
+                    // Checkbox
+                    val boxColor by animateColorAsState(
+                        targetValue = if (task.completed) AccentTeal else Color.White.copy(alpha = 0.3f),
+                        label = "choreCheckboxColor"
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                }
-
-                // Timer button
-                val isTimerActive = timerTask == task.name
-                Text(
-                    text = if (isTimerActive) "⏹" else "⏱",
-                    modifier = Modifier.clickable {
-                        if (isTimerActive) viewModel.stopTimer() else viewModel.startTimer(task.name)
+                    val checkScale by animateFloatAsState(
+                        targetValue = if (task.completed) 1f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "choreCheckScale"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(boxColor)
+                            .clickable { viewModel.toggleTask(index) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (checkScale > 0f) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .scale(checkScale)
+                            )
+                        }
                     }
-                )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Task name
+                    Text(
+                        task.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (task.completed) ChoresText.copy(alpha = 0.4f) else ChoresText,
+                        textDecoration = if (task.completed) TextDecoration.LineThrough else TextDecoration.None,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // Time + timer
+                    if (task.timeSpentMin != null && task.timeSpentMin > 0) {
+                        Text(
+                            "${task.timeSpentMin} min",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ChoresText.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+
+                    // Timer button
+                    val isTimerActive = timerTask == task.name
+                    Text(
+                        text = if (isTimerActive) "⏹" else "⏱",
+                        modifier = Modifier.clickable {
+                            if (isTimerActive) viewModel.stopTimer() else viewModel.startTimer(task.name)
+                        }
+                    )
+                }
             }
         }
 

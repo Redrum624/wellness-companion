@@ -1,5 +1,8 @@
 package com.wellnesscompanion.app.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -45,6 +50,12 @@ fun WeeklyTrendChart(
     val labels = StreakTracker.last7DayLabels()
     val textMeasurer = rememberTextMeasurer()
 
+    // Grow-in: bars rise from the baseline on first composition.
+    val growth = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        growth.animateTo(1f, animationSpec = tween(600, easing = FastOutSlowInEasing))
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -71,7 +82,8 @@ fun WeeklyTrendChart(
                 maxValue = maxValue,
                 barColor = barColor,
                 textColor = textColor,
-                textMeasurer = textMeasurer
+                textMeasurer = textMeasurer,
+                growth = growth.value
             )
         }
     }
@@ -83,7 +95,8 @@ private fun DrawScope.drawBarChart(
     maxValue: Float,
     barColor: Color,
     textColor: Color,
-    textMeasurer: TextMeasurer
+    textMeasurer: TextMeasurer,
+    growth: Float
 ) {
     val w = size.width
     val h = size.height
@@ -104,7 +117,7 @@ private fun DrawScope.drawBarChart(
 
     for (i in values.indices) {
         val x = gap + i * (barWidth + gap)
-        val barH = (values[i] / safeMax).coerceIn(0f, 1f) * chartHeight
+        val barH = (values[i] / safeMax).coerceIn(0f, 1f) * chartHeight * growth
         val barY = chartHeight - barH + 4f
 
         // Bar
