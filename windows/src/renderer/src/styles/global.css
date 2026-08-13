@@ -131,7 +131,17 @@ body {
 }
 
 .page-enter {
+  /* Height must be explicit here: this div sits between <main> (a flex item
+     with a definite computed height) and the routed page root, some of which
+     (e.g. InsightsPage) rely on height:'100%' all the way down to bound an
+     internal scroll region. A bare wrapper div defaults to height:auto,
+     which breaks that percentage-height chain for every descendant. */
+  height: 100%;
   animation: fadeInUp 0.25s ease-out;
+}
+
+.pop-in {
+  animation: popIn 0.2s ease-out;
 }
 
 /* Sidebar motion: icon hover scale + sliding active accent bar */
@@ -253,7 +263,9 @@ body {
   width: 0;
   overflow: hidden;
   vertical-align: bottom;
-  animation: thinkingDots 1.2s steps(3, end) infinite;
+  /* 1.8s keeps this within the calm-pastel "infinite animation" floor
+     (>=1.8s period); only the caret blink is the named 1s exception. */
+  animation: thinkingDots 1.8s steps(3, end) infinite;
 }
 
 .stream-caret {

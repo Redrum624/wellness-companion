@@ -117,7 +117,7 @@ export default function InsightsPage() {
       </div>
 
       {status === 'error' && errorDetail && (
-        <div style={{
+        <div className="pop-in" style={{
           background: 'rgba(231,76,60,0.1)', borderRadius: 10, padding: 12,
           marginBottom: 12, fontSize: 12, color: '#C0392B', whiteSpace: 'pre-wrap', lineHeight: 1.5
         }}>
