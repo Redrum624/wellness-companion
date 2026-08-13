@@ -148,6 +148,31 @@ expressed: cite real numbers and dates, name a hard day plainly instead of refra
 cross-category connection, and close with a single concrete suggestion drawn from an observed
 pattern. Affects: `windows/src/renderer/src/lib/prompts.ts`.
 
+### Changed — icons, motion, and the crane bowl
+
+- **The hobby crane bowl was redrawn.** Cause of the old look: cranes drew at a fixed
+  127-pixel scale over a fill almost identical to the page pink, so the bowl read as a faint
+  outline, the cranes as a muddy wall, and bottom-row cranes hung below the bowl's edge. The
+  bowl is now glass — visible silhouette, rim and highlight — cranes are sized to the canvas,
+  heap up from the centre, crest above the rim into a pyramid, and tumble onto the ground
+  beside a full bowl; a clip keeps every crane inside the glass, so nothing can poke through
+  the bottom. New cranes drop in with a soft bounce, and only for time logged while the
+  screen is open. Affects: `android/.../ui/hobbies/CraneBowlCanvas.kt`.
+- **Chrome glyphs are real icons now.** The `←` `→` `✕` `✓` `★` text glyphs and the 🔄 sync
+  emoji became Material Rounded icons on Android and lucide icons on the desktop app; the
+  category emoji stay — they are the brand. Notifications show a sprout instead of Android's
+  stock compass icon. Why: text glyphs render inconsistently across devices and read as
+  unfinished next to proper vector icons.
+- **Motion pass on both apps.** Category screens slide with the swipe direction and the
+  active nav dot morphs between pages; the water bottle's level, big number and goal bar
+  animate (the level tracks the finger raw while dragging — only the settle springs); charts
+  grow in on first view; chore checkmarks bounce; mood tiles scale when selected; dashboard
+  cards enter staggered, with a subtle streak-badge pulse from a three-day streak up; the
+  celebration overlay pops in with a spring and now also fires when every chore is done, all
+  four meals are logged, or a sleep goal is met. On the desktop: pages fade in, buttons and
+  stars respond to hover and press, the activity heatmap reacts under the cursor, and the
+  Insights status pulses while the model is thinking.
+
 ### Known limitations
 
 - Sync traffic is unencrypted `ws://` on the local network, and neither database is encrypted at

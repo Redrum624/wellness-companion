@@ -21,7 +21,7 @@
 
 <p align="center">
   <img src="docs/images/android-dashboard.png" alt="Dashboard showing twelve category cards with streaks" width="19%">
-  <img src="docs/images/android-water.png" alt="Water screen: 3073 ml against a 2700 ml goal" width="19%">
+  <img src="docs/images/android-water.png" alt="Water screen: 1474 ml toward a 2700 ml daily goal" width="19%">
   <img src="docs/images/android-hobbies.png" alt="Hobbies screen: a bowl filling with origami cranes" width="19%">
   <img src="docs/images/android-emotions.png" alt="Emotions screen with the day's emotional flow and a 7-day trend" width="19%">
   <img src="docs/images/android-sleep.png" alt="Sleep screen with duration, quality score and a 7-day trend" width="19%">
@@ -184,9 +184,9 @@ If mDNS discovery fails — some networks block multicast — type the PC's addr
 instead (`192.168.1.42:9847`).
 
 <p align="center">
-  <img src="docs/images/android-sync.png" alt="The phone's sync panel: paired, and reporting 819 entries received" width="30%">
+  <img src="docs/images/android-sync.png" alt="The phone's sync panel: paired, freshly synced with the desktop" width="30%">
   &nbsp;&nbsp;
-  <img src="docs/images/android-celebrate.png" alt="A celebration overlay when the daily water goal is met" width="30%">
+  <img src="docs/images/android-celebrate.png" alt="A celebration overlay when a daily goal is met — here, every chore done" width="30%">
 </p>
 <p align="center"><sub>Left: a first sync pulling nine weeks of history. Right: what hitting a daily goal looks like.</sub></p>
 
