@@ -1,10 +1,17 @@
 package com.wellnesscompanion.app.ui.water
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,8 +105,13 @@ fun WaterScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Main display
+        val animatedConsumed by animateIntAsState(
+            targetValue = totalConsumed,
+            animationSpec = tween(500),
+            label = "consumedCountUp"
+        )
         Text(
-            text = "$totalConsumed",
+            text = "$animatedConsumed",
             style = MaterialTheme.typography.displayLarge,
             color = WaterText
         )
@@ -113,6 +126,11 @@ fun WaterScreen(
 
         // Daily goal progress bar
         val dailyProgress by viewModel.dailyProgress.collectAsState()
+        val animatedDailyProgress by animateFloatAsState(
+            targetValue = dailyProgress,
+            animationSpec = spring(stiffness = Spring.StiffnessLow),
+            label = "dailyProgressBar"
+        )
         androidx.compose.foundation.Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -122,7 +140,7 @@ fun WaterScreen(
             drawRect(Color.White.copy(alpha = 0.3f))
             drawRect(
                 color = if (dailyProgress >= 1f) AccentTeal.copy(alpha = 0.7f) else WaterText.copy(alpha = 0.3f),
-                size = size.copy(width = size.width * dailyProgress)
+                size = size.copy(width = size.width * animatedDailyProgress)
             )
         }
         Text(
@@ -168,8 +186,13 @@ fun WaterScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Water bottle canvas — drag down only (drinking)
+        val animatedBottleFill by animateFloatAsState(
+            targetValue = displayFill,
+            animationSpec = spring(stiffness = Spring.StiffnessLow),
+            label = "bottleFill"
+        )
         WaterBottleCanvas(
-            fillFraction = displayFill,
+            fillFraction = animatedBottleFill,
             capacity = capacity,
             onDragDelta = { pixelDelta, canvasHeight ->
                 // Only allow downward drag (positive pixelDelta = finger moves down = drink)
@@ -208,9 +231,16 @@ fun WaterScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Refill button — prominent when near empty
+        val refillInteractionSource = remember { MutableInteractionSource() }
+        val isRefillPressed by refillInteractionSource.collectIsPressedAsState()
+        val refillScale by animateFloatAsState(
+            targetValue = if (isRefillPressed) 0.94f else 1f,
+            label = "refillScale"
+        )
         Button(
             onClick = { viewModel.logRefill() },
             enabled = bottleFill < 0.95f,
+            interactionSource = refillInteractionSource,
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isNearEmpty) AccentTeal.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.5f),
                 contentColor = if (isNearEmpty) Color.White else WaterText,
@@ -218,7 +248,9 @@ fun WaterScreen(
                 disabledContentColor = WaterSecondary.copy(alpha = 0.3f)
             ),
             shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(refillScale)
         ) {
             Text(
                 if (isNearEmpty) "\uD83D\uDCA7 Refill bottle!" else "\uD83D\uDCA7 Refill bottle",
