@@ -239,6 +239,10 @@ fun WaterScreen(
         val isRefillPressed by refillInteractionSource.collectIsPressedAsState()
         val refillScale by animateFloatAsState(
             targetValue = if (isRefillPressed) 0.94f else 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
+            ),
             label = "refillScale"
         )
         Button(

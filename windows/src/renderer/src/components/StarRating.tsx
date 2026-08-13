@@ -16,7 +16,7 @@ export default function StarRating({ value, onChange, color }: Props) {
           className="star-btn"
           style={{
             border: 'none', cursor: 'pointer',
-            padding: 2
+            padding: 2, color
           }}
         >
           <Star size={18} strokeWidth={2} fill={star <= value ? 'currentColor' : 'none'} />
