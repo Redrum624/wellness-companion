@@ -12,6 +12,7 @@ export default function QuickButtons({ values, label, color, onSelect }: Props) 
         <button
           key={v}
           onClick={() => onSelect(v)}
+          className="quick-btn"
           style={{
             border: 'none', borderRadius: 12, padding: '6px 14px',
             background: `${color}30`, color, fontSize: 13,

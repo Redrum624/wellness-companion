@@ -109,3 +109,159 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.2);
 }
+
+/* ===== Motion: shared keyframes ===== */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseSoft {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes blink {
+  to { opacity: 0; }
+}
+
+.page-enter {
+  animation: fadeInUp 0.25s ease-out;
+}
+
+/* Sidebar motion: icon hover scale + sliding active accent bar */
+.sidebar-item {
+  position: relative;
+}
+
+.sidebar-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent, #3D3262);
+  transition: width 0.15s ease-out;
+}
+
+.sidebar-item.active::before {
+  width: 3px;
+}
+
+.sidebar-icon {
+  display: inline-block;
+  transition: transform 0.15s ease-out;
+}
+
+.sidebar-item:hover .sidebar-icon {
+  transform: scale(1.12);
+}
+
+/* Interactive controls: QuickButtons, StarRating, SliderInput, DatePicker */
+.quick-btn {
+  transition: filter 0.15s ease-out, box-shadow 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.quick-btn:hover {
+  filter: brightness(0.94);
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.quick-btn:active {
+  transform: scale(0.96);
+}
+
+.star-btn {
+  border-radius: 6px;
+  background: transparent;
+  transition: background 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.star-btn:hover {
+  background: rgba(61, 50, 98, 0.08);
+}
+
+.star-btn:active {
+  transform: scale(0.96);
+}
+
+.slider-input {
+  cursor: pointer;
+  transition: filter 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.slider-input:hover {
+  filter: brightness(1.08);
+}
+
+.slider-input:active {
+  transform: scale(0.96);
+}
+
+.date-input {
+  background: rgba(255, 255, 255, 0.3);
+  transition: background 0.15s ease-out, box-shadow 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.date-input:hover {
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 1px rgba(61, 50, 98, 0.15);
+}
+
+.date-input:active {
+  transform: scale(0.96);
+}
+
+/* Timeline: staggered entry fade-in */
+.timeline-entry {
+  animation: fadeInUp 0.25s ease-out both;
+  animation-delay: calc(var(--i, 0) * 25ms);
+}
+
+/* Calendar heatmap: hover feedback on cells */
+.heatmap-cell {
+  cursor: pointer;
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  transition: fill 0.2s ease-out, filter 0.15s ease-out, outline-color 0.15s ease-out;
+}
+
+.heatmap-cell:hover {
+  filter: brightness(1.15);
+  outline-color: rgba(61, 50, 98, 0.35);
+}
+
+/* Insights: generating status pulse, thinking ellipsis, streaming caret */
+.status-dot-generating {
+  animation: pulseSoft 2s ease-in-out infinite alternate;
+}
+
+@keyframes thinkingDots {
+  to { width: 1.2em; }
+}
+
+.thinking-dots::after {
+  content: '...';
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  vertical-align: bottom;
+  animation: thinkingDots 1.2s steps(3, end) infinite;
+}
+
+.stream-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  background: currentColor;
+  vertical-align: text-bottom;
+  animation: blink 1s steps(2, start) infinite;
+}

@@ -17,6 +17,7 @@ export default function SliderInput({ value, min = 1, max = 10, onChange, color,
         max={max}
         value={value}
         onChange={e => onChange(Number(e.target.value))}
+        className="slider-input"
         style={{ flex: 1, accentColor: color }}
       />
       <span style={{ fontSize: 16, fontWeight: 600, color, width: 30, textAlign: 'center' }}>{value}</span>

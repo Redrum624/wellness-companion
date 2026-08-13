@@ -10,9 +10,10 @@ export default function DatePicker({ value, onChange, color }: Props) {
       type="date"
       value={value}
       onChange={e => onChange(e.target.value)}
+      className="date-input"
       style={{
         border: 'none', borderRadius: 10, padding: '6px 10px',
-        background: 'rgba(255,255,255,0.3)', color,
+        color,
         fontSize: 12, fontFamily: 'inherit', outline: 'none',
         cursor: 'pointer'
       }}

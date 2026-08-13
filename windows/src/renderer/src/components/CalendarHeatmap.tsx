@@ -57,7 +57,7 @@ export default function CalendarHeatmap({ dateCounts, onDateClick }: Props) {
             height={cellSize}
             rx={3}
             fill={getColor(cell.count)}
-            style={{ cursor: 'pointer' }}
+            className="heatmap-cell"
             onClick={() => onDateClick?.(cell.date)}
           >
             <title>{`${cell.date}: ${cell.count} entries`}</title>

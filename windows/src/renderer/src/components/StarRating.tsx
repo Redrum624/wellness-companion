@@ -13,8 +13,9 @@ export default function StarRating({ value, onChange, color }: Props) {
         <button
           key={star}
           onClick={() => onChange(star)}
+          className="star-btn"
           style={{
-            border: 'none', background: 'none', cursor: 'pointer',
+            border: 'none', cursor: 'pointer',
             padding: 2
           }}
         >

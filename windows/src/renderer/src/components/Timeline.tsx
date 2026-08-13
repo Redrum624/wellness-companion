@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { Entry } from '../types/entry'
 import { getCategoryByKey } from '../lib/categories'
 import { categoryColors, type CategoryKey } from '../styles/theme'
@@ -40,7 +41,7 @@ export default function Timeline({ entries, filterCategory, onFilterChange }: Pr
       {filtered.length === 0 && (
         <div style={{ fontSize: 13, color: '#3D326260', padding: 16 }}>No entries for this date</div>
       )}
-      {filtered.map(entry => {
+      {filtered.map((entry, idx) => {
         const cat = getCategoryByKey(entry.category)
         const colors = categoryColors[entry.category as CategoryKey]
         const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -50,12 +51,16 @@ export default function Timeline({ entries, filterCategory, onFilterChange }: Pr
         return (
           <div
             key={entry.id}
+            className="timeline-entry"
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '8px 12px', marginBottom: 4,
               borderRadius: 10, background: 'rgba(255,255,255,0.3)',
-              fontSize: 13
-            }}
+              fontSize: 13,
+              // Stagger the fade-in per row; cap the delay growth past ~15 rows
+              // so a long list doesn't keep the tail waiting to appear.
+              '--i': Math.min(idx, 15)
+            } as CSSProperties}
           >
             <span style={{ fontSize: 14 }}>{cat?.icon}</span>
             <span style={{ color: '#3D326280', width: 48, flexShrink: 0 }}>{time}</span>

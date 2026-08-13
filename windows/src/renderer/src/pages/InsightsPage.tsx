@@ -98,15 +98,21 @@ export default function InsightsPage() {
   }, [status])
 
   const statusColor = status === 'ready' ? '#5DCAA5' : status === 'loading' || status === 'generating' ? '#F0997B' : status === 'error' ? '#E74C3C' : '#999'
-  const statusLabel = status === 'idle' ? 'Model not loaded' : status === 'loading' ? 'Loading model...' : status === 'ready' ? 'Ready' : status === 'generating' ? 'Thinking...' : 'Error'
+  const statusLabel = status === 'idle' ? 'Model not loaded' : status === 'loading' ? 'Loading model...' : status === 'ready' ? 'Ready' : status === 'generating' ? 'Thinking' : 'Error'
 
   return (
     <div style={{ padding: 24, maxWidth: 700, margin: '0 auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <h2 style={{ color: '#3D3262', fontWeight: 600, fontSize: 22, flex: 1 }}>Insights</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor }} />
-          <span style={{ fontSize: 11, color: '#3D326280' }}>{statusLabel}</span>
+          <div
+            className={status === 'generating' ? 'status-dot-generating' : undefined}
+            style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor }}
+          />
+          <span style={{ fontSize: 11, color: '#3D326280' }}>
+            {statusLabel}
+            {status === 'generating' && <span className="thinking-dots" />}
+          </span>
         </div>
       </div>
 
@@ -155,7 +161,9 @@ export default function InsightsPage() {
           minHeight: 200
         }}
       >
-        {response || (
+        {response}
+        {isGenerating && <span className="stream-caret" />}
+        {!response && !isGenerating && (
           <span style={{ color: '#3D326240' }}>
             Ask a question about your wellness data, or generate a weekly portrait to see patterns and insights.
           </span>

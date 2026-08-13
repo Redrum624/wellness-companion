@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
+import type { CSSProperties } from 'react'
 import { NavLink } from 'react-router-dom'
+import { getCategoryByKey } from '../lib/categories'
+import { categoryColors, accentColors } from '../styles/theme'
 
 declare global {
   interface Window {
@@ -67,17 +70,25 @@ export default function Sidebar() {
         <img src="./favicon.png" alt="" style={{ width: 22, height: 22 }} />
         Wellness
       </div>
-      {navItems.map((item) => (
-        <NavLink
-          key={item.path}
-          to={item.path}
-          className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
-          end={item.path === '/'}
-        >
-          <span className="sidebar-icon">{item.icon}</span>
-          <span className="sidebar-label">{item.label}</span>
-        </NavLink>
-      ))}
+      {navItems.map((item) => {
+        // Most nav items map 1:1 to a data category and borrow its color for the
+        // active accent bar; items with no category (Dashboard, Insights) fall
+        // back to the app's existing "active/ready" accent (teal).
+        const category = item.path === '/' ? undefined : getCategoryByKey(item.path.slice(1))
+        const accent = category ? categoryColors[category.key].text : accentColors.teal
+        return (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+            end={item.path === '/'}
+            style={{ '--accent': accent } as CSSProperties}
+          >
+            <span className="sidebar-icon">{item.icon}</span>
+            <span className="sidebar-label">{item.label}</span>
+          </NavLink>
+        )
+      })}
 
       {/* Sync status at bottom */}
       <div style={{ marginTop: 'auto', padding: '12px 12px 4px' }}>
