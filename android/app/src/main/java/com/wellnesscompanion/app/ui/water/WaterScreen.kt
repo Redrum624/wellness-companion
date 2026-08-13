@@ -191,8 +191,12 @@ fun WaterScreen(
             animationSpec = spring(stiffness = Spring.StiffnessLow),
             label = "bottleFill"
         )
+        // While actively dragging, render the raw finger-tracked value so the fill edge
+        // doesn't lag the gesture; the spring still runs underneath and takes over on
+        // release (quick-add taps / refill) so those transitions stay smooth.
+        val renderedBottleFill = if (isDragging) displayFill else animatedBottleFill
         WaterBottleCanvas(
-            fillFraction = animatedBottleFill,
+            fillFraction = renderedBottleFill,
             capacity = capacity,
             onDragDelta = { pixelDelta, canvasHeight ->
                 // Only allow downward drag (positive pixelDelta = finger moves down = drink)
