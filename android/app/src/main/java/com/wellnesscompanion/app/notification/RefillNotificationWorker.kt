@@ -11,6 +11,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.wellnesscompanion.app.R
 
 class RefillNotificationWorker(
     private val context: Context,
@@ -46,7 +47,7 @@ class RefillNotificationWorker(
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(R.drawable.ic_stat_sprout)
             .setContentTitle("Time to refill! \uD83D\uDCA7")
             .setContentText("Your water bottle has been empty for a while. Stay hydrated!")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

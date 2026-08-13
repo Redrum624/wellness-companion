@@ -11,6 +11,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.wellnesscompanion.app.R
 
 class HydrationReminderWorker(
     private val context: Context,
@@ -51,7 +52,7 @@ class HydrationReminderWorker(
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(R.drawable.ic_stat_sprout)
             .setContentTitle(messages.random())
             .setContentText("Take a moment to drink some water.")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

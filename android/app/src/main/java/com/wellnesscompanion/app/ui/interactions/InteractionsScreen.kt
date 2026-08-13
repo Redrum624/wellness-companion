@@ -17,9 +17,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -229,7 +233,16 @@ fun InteractionsScreen(
                     Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                         Text(timeStr, style = MaterialTheme.typography.labelSmall, color = InteractionsText.copy(alpha = 0.5f))
                         if (entry.qualityRating > 0) {
-                            Text("${"★".repeat(entry.qualityRating)}${"☆".repeat(5 - entry.qualityRating)}", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF0997B))
+                            Row {
+                                repeat(5) { i ->
+                                    Icon(
+                                        imageVector = if (i < entry.qualityRating) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                        contentDescription = null,
+                                        tint = Color(0xFFF0997B),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                     if (entry.people.isNotEmpty()) {

@@ -19,6 +19,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -107,14 +111,25 @@ fun DashboardScreen(
             // Sync section (hidden by default)
             var showSync by remember { mutableStateOf(false) }
 
-            Text(
-                text = if (showSync) "\uD83D\uDD04 Hide sync" else "\uD83D\uDD04 Sync",
-                style = MaterialTheme.typography.labelSmall,
-                color = GreetingColor.copy(alpha = 0.4f),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(horizontal = 20.dp)
                     .clickable { showSync = !showSync }
-            )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Sync,
+                    contentDescription = null,
+                    tint = GreetingColor.copy(alpha = 0.4f),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (showSync) "Hide sync" else "Sync",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GreetingColor.copy(alpha = 0.4f)
+                )
+            }
 
             if (showSync) {
                 Spacer(modifier = Modifier.height(6.dp))
@@ -123,7 +138,7 @@ fun DashboardScreen(
                 val manualIp by syncViewModel.manualIp.collectAsState()
 
                 val syncLabel = when (syncStatus) {
-                    is SyncStatus.Idle -> "\uD83D\uDD04 Sync"
+                    is SyncStatus.Idle -> "Sync"
                     is SyncStatus.Discovering -> "Searching..."
                     is SyncStatus.Connecting -> "Connecting..."
                     is SyncStatus.Syncing -> "Syncing..."
@@ -176,16 +191,29 @@ fun DashboardScreen(
                         }
                     )
 
-                    Text(
-                        text = if (isPaired) "\u2713 Paired" else "Pair",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = GreetingColor.copy(alpha = 0.6f),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color.White.copy(alpha = 0.35f))
                             .clickable { syncViewModel.savePairingCode() }
                             .padding(horizontal = 12.dp, vertical = 9.dp)
-                    )
+                    ) {
+                        if (isPaired) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = GreetingColor.copy(alpha = 0.6f),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = if (isPaired) "Paired" else "Pair",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = GreetingColor.copy(alpha = 0.6f)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -217,10 +245,8 @@ fun DashboardScreen(
                     )
 
                     // Connect button
-                    Text(
-                        text = syncLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = GreetingColor.copy(alpha = 0.6f),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color.White.copy(alpha = if (isSyncing) 0.2f else 0.35f))
@@ -229,7 +255,22 @@ fun DashboardScreen(
                                 else syncViewModel.syncAuto()
                             }
                             .padding(horizontal = 12.dp, vertical = 9.dp)
-                    )
+                    ) {
+                        if (syncStatus is SyncStatus.Idle) {
+                            Icon(
+                                imageVector = Icons.Rounded.Sync,
+                                contentDescription = null,
+                                tint = GreetingColor.copy(alpha = 0.6f),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = syncLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = GreetingColor.copy(alpha = 0.6f)
+                        )
+                    }
                 }
                 if (syncDetail != null) {
                     Text(

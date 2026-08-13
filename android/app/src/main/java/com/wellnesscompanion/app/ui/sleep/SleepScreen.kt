@@ -11,10 +11,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,7 +85,14 @@ fun SleepScreen(
                     }, parts[0].toInt(), parts[1].toInt(), true).show()
                 }
             )
-            Text("→", color = SleepText.copy(alpha = 0.4f), modifier = Modifier.padding(top = 20.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                contentDescription = null,
+                tint = SleepText.copy(alpha = 0.4f),
+                modifier = Modifier
+                    .padding(top = 20.dp)
+                    .size(16.dp)
+            )
             TimeCard(
                 label = "Wake up",
                 time = wakeTime,
@@ -182,11 +195,13 @@ fun SleepScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(time, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFF0997B))
-                            Text(
-                                "✕",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SleepText.copy(alpha = 0.4f),
-                                modifier = Modifier.clickable { viewModel.removeWakeUp(index) }
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Remove wake-up",
+                                tint = SleepText.copy(alpha = 0.4f),
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clickable { viewModel.removeWakeUp(index) }
                             )
                         }
                     }
@@ -210,11 +225,20 @@ fun SleepScreen(
                 Text("Save sleep log")
             }
         } else {
-            Text(
-                "Sleep logged ✓",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SleepText.copy(alpha = 0.5f)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Sleep logged",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SleepText.copy(alpha = 0.5f)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = SleepText.copy(alpha = 0.5f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
