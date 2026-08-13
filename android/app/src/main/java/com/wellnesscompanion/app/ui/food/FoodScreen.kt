@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wellnesscompanion.app.data.model.Category
 import com.wellnesscompanion.app.ui.components.CategoryWeeklyTrend
+import com.wellnesscompanion.app.ui.components.CelebrationOverlay
 import com.wellnesscompanion.app.ui.theme.AccentTeal
 import com.wellnesscompanion.app.ui.theme.FoodText
 
@@ -47,6 +49,17 @@ fun FoodScreen(
     val loggedCount by viewModel.mealsLoggedCount.collectAsState()
     var editingMeal by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
+
+    // Goal celebration — all four meal slots logged for today
+    var showCelebration by remember { mutableStateOf(false) }
+    var goalWasReached by remember { mutableStateOf(false) }
+
+    LaunchedEffect(loggedCount) {
+        if (loggedCount >= 4 && !goalWasReached) {
+            goalWasReached = true
+            showCelebration = true
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -118,6 +131,13 @@ fun FoodScreen(
             containerColor = Color(0xFFD2E8C8)
         )
     }
+
+    // Celebration overlay when all four meal slots are logged
+    CelebrationOverlay(
+        visible = showCelebration,
+        goalName = "daily meals",
+        onDismiss = { showCelebration = false }
+    )
 }
 
 @Composable

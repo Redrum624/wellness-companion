@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wellnesscompanion.app.data.model.Category
 import com.wellnesscompanion.app.ui.components.CategoryWeeklyTrend
+import com.wellnesscompanion.app.ui.components.CelebrationOverlay
 import com.wellnesscompanion.app.data.model.DailyGoals
 import com.wellnesscompanion.app.ui.theme.AccentTeal
 import com.wellnesscompanion.app.ui.theme.ChoresText
@@ -53,6 +55,17 @@ fun ChoresScreen(
     val timerTask by viewModel.timerTask.collectAsState()
     var showAddTask by remember { mutableStateOf(false) }
     var newTaskName by remember { mutableStateOf("") }
+
+    // Goal celebration — all of today's chores completed
+    var showCelebration by remember { mutableStateOf(false) }
+    var goalWasReached by remember { mutableStateOf(false) }
+
+    LaunchedEffect(completedCount, totalCount) {
+        if (totalCount > 0 && completedCount == totalCount && !goalWasReached) {
+            goalWasReached = true
+            showCelebration = true
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Progress
@@ -205,4 +218,11 @@ fun ChoresScreen(
             containerColor = Color(0xFFDDD8CE)
         )
     }
+
+    // Celebration overlay when all of today's chores are completed
+    CelebrationOverlay(
+        visible = showCelebration,
+        goalName = "daily chores",
+        onDismiss = { showCelebration = false }
+    )
 }

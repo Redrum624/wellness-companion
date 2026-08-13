@@ -2,6 +2,8 @@ package com.wellnesscompanion.app.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -23,7 +25,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -69,6 +73,23 @@ fun CelebrationOverlay(
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(durationMillis = 3000, easing = LinearEasing)
+            )
+        }
+
+        // Card entrance: pop in with a bouncy scale + fade, independent of confetti timing
+        val cardScale = remember { Animatable(0.8f) }
+        val cardAlpha = remember { Animatable(0f) }
+
+        LaunchedEffect(Unit) {
+            cardScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+            )
+        }
+        LaunchedEffect(Unit) {
+            cardAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
             )
         }
 
@@ -137,6 +158,8 @@ fun CelebrationOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier
+                    .scale(cardScale.value)
+                    .alpha(cardAlpha.value)
                     .fillMaxWidth()
                     .padding(horizontal = 32.dp)
                     .clip(RoundedCornerShape(24.dp))

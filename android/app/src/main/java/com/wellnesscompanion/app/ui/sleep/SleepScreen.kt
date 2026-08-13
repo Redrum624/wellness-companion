@@ -24,8 +24,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wellnesscompanion.app.data.model.Category
+import com.wellnesscompanion.app.data.model.DailyGoals
 import com.wellnesscompanion.app.ui.components.CategoryWeeklyTrend
+import com.wellnesscompanion.app.ui.components.CelebrationOverlay
 import com.wellnesscompanion.app.ui.theme.SleepText
 
 @Composable
@@ -49,6 +55,17 @@ fun SleepScreen(
     val qualityScore by viewModel.qualityScore.collectAsState()
     val saved by viewModel.saved.collectAsState()
     val context = LocalContext.current
+
+    // Goal celebration — a saved sleep entry meeting the daily goal
+    var showCelebration by remember { mutableStateOf(false) }
+    var goalWasReached by remember { mutableStateOf(false) }
+
+    LaunchedEffect(saved) {
+        if (saved && totalHours >= DailyGoals.SLEEP_MIN_HOURS && !goalWasReached) {
+            goalWasReached = true
+            showCelebration = true
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -248,6 +265,13 @@ fun SleepScreen(
 
         Spacer(modifier = Modifier.height(60.dp))
     }
+
+    // Celebration overlay when a saved sleep entry meets the daily goal
+    CelebrationOverlay(
+        visible = showCelebration,
+        goalName = "nightly sleep",
+        onDismiss = { showCelebration = false }
+    )
 }
 
 @Composable
