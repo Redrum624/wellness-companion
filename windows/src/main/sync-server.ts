@@ -336,8 +336,9 @@ function ingestEntries(
     INSERT OR IGNORE INTO entries (id, category, timestamp, date, data, version, modified_at, synced)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `)
+  // LWW is whole-row — pinning `date` to the first-seen value silently broke any feature that legitimately re-dates an entry.
   const updateStmt = db.prepare(`
-    UPDATE entries SET data = ?, version = ?, modified_at = ?, synced = 1
+    UPDATE entries SET data = ?, date = ?, version = ?, modified_at = ?, synced = 1
     WHERE id = ? AND modified_at < ?
   `)
 
@@ -352,7 +353,7 @@ function ingestEntries(
         insertStmt.run(e.id, e.category, e.timestamp, e.date, e.data, e.version ?? 1, e.modified_at)
         inserted++
       } else if (e.modified_at > existing.modified_at) {
-        updateStmt.run(e.data, e.version ?? 1, e.modified_at, e.id, existing.modified_at)
+        updateStmt.run(e.data, e.date, e.version ?? 1, e.modified_at, e.id, existing.modified_at)
         updated++
       }
     }

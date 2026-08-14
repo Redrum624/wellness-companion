@@ -352,8 +352,10 @@ class SyncManager @Inject constructor(
                                             )
                                             inserted++
                                         } else if (e.getLong("modified_at") > existing.modifiedAt) {
+                                            // LWW is whole-row — pinning `date` to the first-seen value silently broke any feature that legitimately re-dates an entry.
                                             entryDao.updateSync(
                                                 existing.copy(
+                                                    date = e.getString("date"),
                                                     data = e.getString("data"),
                                                     version = e.optInt("version", 1),
                                                     modifiedAt = e.getLong("modified_at"),
