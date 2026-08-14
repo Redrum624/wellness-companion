@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 
 data class IdeaEntry(
@@ -23,6 +26,12 @@ data class IdeaEntry(
     val title: String,
     val body: String,
     val tags: List<String>
+)
+
+data class IdeaDay(
+    val date: String,          // yyyy-MM-dd
+    val label: String,         // "Wed, Aug 13"
+    val ideas: List<IdeaEntry>
 )
 
 @HiltViewModel
@@ -56,6 +65,31 @@ class IdeasViewModel @Inject constructor(
     // Keep raw entries for edit/delete operations
     private val rawEntries = repository.getTodayEntries("ideas")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Everything before today, last 365 days, newest day first. The phone's DB
+     * already holds every synced idea — this was the only missing piece of UI.
+     */
+    val historyDays = repository.getEntriesByDateRange(
+        LocalDate.now().minusDays(365).format(DateTimeFormatter.ISO_LOCAL_DATE),
+        LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE),
+        "ideas"
+    ).map { entries ->
+        entries.mapNotNull { e ->
+            val data = gson.fromJsonSafe<IdeaData>(e.data) ?: return@mapNotNull null
+            e.date to IdeaEntry(e.id, e.timestamp, data.title, data.body, data.tags)
+        }
+            .groupBy({ it.first }, { it.second })
+            .entries
+            .sortedByDescending { it.key }
+            .map { (date, ideas) ->
+                IdeaDay(
+                    date = date,
+                    label = LocalDate.parse(date).format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())),
+                    ideas = ideas.sortedByDescending { it.timestamp }
+                )
+            }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setTitle(t: String) { _title.value = t }
     fun setBody(b: String) { _body.value = b }
