@@ -46,7 +46,9 @@ export default function SleepPage() {
   useEffect(() => {
     if (existingData) {
       setBedtime(existingData.bedtime)
-      if (existingData.wakeTime) setWakeTime(existingData.wakeTime)
+      // Unconditional reset: a truthy-only guard here leaked the previous
+      // date's wake time into partial dates (review finding, fix round 1).
+      setWakeTime(existingData.wakeTime ?? '07:00')
       setWakeUps(existingData.wakeUps ?? [])
     } else {
       setBedtime('23:00')
