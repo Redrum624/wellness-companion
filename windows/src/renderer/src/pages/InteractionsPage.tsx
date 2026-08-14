@@ -18,22 +18,27 @@ export default function InteractionsPage() {
   const [people, setPeople] = useState<string[]>([])
   const [rating, setRating] = useState(0)
   const [journal, setJournal] = useState('')
-  const [savedPeople, setSavedPeople] = useState<string[]>([])
+  const [savedPeople, setSavedPeople] = useState<Person[]>([])
+  const [managePeople, setManagePeople] = useState(false)
 
-  useEffect(() => {
-    db.getPeople().then((p: Person[]) => setSavedPeople(p.map(x => x.name)))
-  }, [])
+  const loadPeople = () => db.getPeople().then((p: Person[]) => setSavedPeople(p))
+  useEffect(() => { loadPeople() }, [])
+
+  const removePerson = async (id: string) => {
+    await db.deletePerson(id)
+    await loadPeople()
+  }
 
   const logEntry = async () => {
     const data: InteractionData = { people, qualityRating: rating, journalText: journal }
     await db.insertEntry('interactions', date, JSON.stringify(data))
     // Save new people
     for (const name of people) {
-      if (!savedPeople.includes(name)) {
+      if (!savedPeople.some(p => p.name === name)) {
         await db.addPerson(name)
-        setSavedPeople(prev => [...prev, name])
       }
     }
+    await loadPeople()
     setPeople([])
     setRating(0)
     setJournal('')
@@ -44,8 +49,43 @@ export default function InteractionsPage() {
     <PageLayout categoryKey="interactions" title="💬 Journal" date={date} onDateChange={goTo}>
       {/* People */}
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 12, color: `${colors.text}80`, marginBottom: 6 }}>Who?</div>
-        <TagInput tags={people} onChange={setPeople} suggestions={savedPeople} placeholder="Add people..." color={colors.text} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 12, color: `${colors.text}80` }}>Who?</div>
+          {savedPeople.length > 0 && (
+            <button
+              onClick={() => setManagePeople(m => !m)}
+              style={{ border: 'none', background: 'none', color: `${colors.text}60`, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+            >
+              {managePeople ? 'done' : 'manage people'}
+            </button>
+          )}
+        </div>
+        <TagInput tags={people} onChange={setPeople} suggestions={savedPeople.map(p => p.name)} placeholder="Add people..." color={colors.text} />
+        {managePeople && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {savedPeople.map(p => (
+                <span key={p.id} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 10px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.3)', color: colors.text, fontSize: 12
+                }}>
+                  {p.name}
+                  <button
+                    onClick={() => removePerson(p.id)}
+                    title={`Remove ${p.name} from suggestions`}
+                    style={{ border: 'none', background: 'none', color: `${colors.text}80`, cursor: 'pointer', fontSize: 14, padding: 0, fontFamily: 'inherit' }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: `${colors.text}50`, marginTop: 4 }}>
+              Removing a person only clears them from suggestions — past entries keep their names.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Rating */}

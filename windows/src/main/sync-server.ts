@@ -53,7 +53,7 @@ const KNOWN_CATEGORIES = new Set([
  */
 const AUX_TABLES = {
   hobbies: ['id', 'name', 'color', 'created_at'],
-  people: ['id', 'name', 'created_at'],
+  people: ['id', 'name', 'created_at', 'deleted_at'],
   chore_templates: ['id', 'name', 'category', 'recurrence', 'created_at']
 } as const
 
@@ -373,10 +373,18 @@ function syncAuxTable(db: Database.Database, table: AuxTable, rows: any[]): void
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`
   )
+  // Tombstones are grow-only: a delete on either device wins over any live
+  // copy, and a stale live row from the peer can never resurrect a deleted one
+  // (INSERT OR IGNORE keeps the local tombstone; this UPDATE only ever sets).
+  const tombstone =
+    table === 'people'
+      ? db.prepare('UPDATE people SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
+      : null
   db.transaction(() => {
     for (const row of rows.slice(0, MAX_ENTRIES_PER_MESSAGE)) {
       if (!row || typeof row !== 'object' || typeof row.id !== 'string') continue
       stmt.run(...columns.map((c) => row[c] ?? null))
+      if (tombstone && Number.isFinite(row.deleted_at)) tombstone.run(row.deleted_at, row.id)
     }
   })()
 }

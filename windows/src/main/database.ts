@@ -10,6 +10,7 @@ export function initDatabase(): void {
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
   createTables()
+  migrateTables()
 }
 
 /**
@@ -64,7 +65,8 @@ function createTables(): void {
     CREATE TABLE IF NOT EXISTS people (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      deleted_at INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -72,6 +74,14 @@ function createTables(): void {
       value TEXT NOT NULL
     );
   `)
+}
+
+/** Idempotent column adds for databases created before the column existed. */
+function migrateTables(): void {
+  const peopleCols = db.prepare('PRAGMA table_info(people)').all().map((c: any) => c.name)
+  if (!peopleCols.includes('deleted_at')) {
+    db.exec('ALTER TABLE people ADD COLUMN deleted_at INTEGER')
+  }
 }
 
 export function registerDatabaseHandlers(): void {
@@ -143,7 +153,7 @@ export function registerDatabaseHandlers(): void {
 
   // People
   ipcMain.handle('db:getPeople', () => {
-    return db.prepare('SELECT * FROM people ORDER BY name').all()
+    return db.prepare('SELECT * FROM people WHERE deleted_at IS NULL ORDER BY name').all()
   })
 
   ipcMain.handle('db:addPerson', (_e, name: string) => {
@@ -151,8 +161,10 @@ export function registerDatabaseHandlers(): void {
     db.prepare('INSERT INTO people (id, name, created_at) VALUES (?, ?, ?)').run(id, name, Date.now())
   })
 
+  // Soft delete: the row becomes a tombstone so sync propagates the removal
+  // instead of re-inserting the person from the peer on the next exchange.
   ipcMain.handle('db:deletePerson', (_e, id: string) => {
-    db.prepare('DELETE FROM people WHERE id = ?').run(id)
+    db.prepare('UPDATE people SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(Date.now(), id)
   })
 
   // Settings
