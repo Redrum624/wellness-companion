@@ -56,11 +56,15 @@ class DashboardViewModel @Inject constructor(
                     val sleep = catEntries.firstOrNull()?.let { e ->
                         gson.fromJsonSafe<SleepData>(e.data)
                     }
-                    if (sleep != null) {
-                        val h = sleep.totalHours.toInt()
-                        val m = ((sleep.totalHours - h) * 60).toInt()
-                        "${h}h ${m}m"
-                    } else "Goal: ${DailyGoals.SLEEP_IDEAL_HOURS.toInt()}h"
+                    when {
+                        sleep?.wakeTime != null -> {
+                            val h = sleep.totalHours.toInt()
+                            val m = ((sleep.totalHours - h) * 60).toInt()
+                            "${h}h ${m}m"
+                        }
+                        sleep != null -> "Bedtime ${sleep.bedtime}"
+                        else -> "Goal: ${DailyGoals.SLEEP_IDEAL_HOURS.toInt()}h"
+                    }
                 }
                 Category.EMOTIONS -> {
                     val count = catEntries.size

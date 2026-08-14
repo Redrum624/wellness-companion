@@ -3,17 +3,27 @@ package com.wellnesscompanion.app.ui.sleep
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
+import com.wellnesscompanion.app.data.local.entity.EntryEntity
 import com.wellnesscompanion.app.data.model.SleepData
 import com.wellnesscompanion.app.data.repository.EntryRepository
 import com.wellnesscompanion.app.util.fromJsonSafe
+import com.wellnesscompanion.app.util.nowMillis
+import com.wellnesscompanion.app.util.todayDateString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+sealed interface SleepLogState {
+    data object None : SleepLogState
+    data class BedtimeSaved(val entry: EntryEntity, val data: SleepData) : SleepLogState
+    data class Complete(val entry: EntryEntity, val data: SleepData) : SleepLogState
+}
 
 @HiltViewModel
 class SleepViewModel @Inject constructor(
@@ -36,23 +46,41 @@ class SleepViewModel @Inject constructor(
     private val _qualityScore = MutableStateFlow(0)
     val qualityScore = _qualityScore.asStateFlow()
 
-    private val _saved = MutableStateFlow(false)
-    val saved = _saved.asStateFlow()
-
-    val todayEntry = repository.getTodayEntries("sleep").map { entries ->
-        entries.firstOrNull()?.let { e -> gson.fromJsonSafe<SleepData>(e.data) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    /**
+     * The save flow is an upsert against the latest sleep entry:
+     *  - wakeTime == null and recent  -> a bedtime waiting for its wake-up
+     *  - wakeTime != null and today   -> tonight is logged
+     *  - anything else                -> fresh slate (old nights stay in history)
+     */
+    val logState: StateFlow<SleepLogState> = repository.getLatestEntry("sleep").map { entry ->
+        if (entry == null) return@map SleepLogState.None
+        val data = gson.fromJsonSafe<SleepData>(entry.data) ?: return@map SleepLogState.None
+        when {
+            data.wakeTime == null && nowMillis() - entry.modifiedAt <= OPEN_ENTRY_MAX_AGE_MS ->
+                SleepLogState.BedtimeSaved(entry, data)
+            data.wakeTime != null && entry.date == todayDateString() ->
+                SleepLogState.Complete(entry, data)
+            else -> SleepLogState.None
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SleepLogState.None)
 
     init {
         recalculate()
         viewModelScope.launch {
-            todayEntry.collect { existing ->
-                if (existing != null) {
-                    _bedtime.value = existing.bedtime
-                    _wakeTime.value = existing.wakeTime
-                    _wakeUps.value = existing.wakeUps
-                    _saved.value = true
-                    recalculate()
+            logState.collect { state ->
+                when (state) {
+                    is SleepLogState.BedtimeSaved -> {
+                        _bedtime.value = state.data.bedtime
+                        _wakeUps.value = state.data.wakeUps
+                        recalculate()
+                    }
+                    is SleepLogState.Complete -> {
+                        _bedtime.value = state.data.bedtime
+                        state.data.wakeTime?.let { _wakeTime.value = it }
+                        _wakeUps.value = state.data.wakeUps
+                        recalculate()
+                    }
+                    SleepLogState.None -> Unit
                 }
             }
         }
@@ -84,21 +112,55 @@ class SleepViewModel @Inject constructor(
         _qualityScore.value = computeQualityScore(hours, _wakeUps.value.size)
     }
 
-    fun saveSleep() {
+    fun saveBedtime() {
         viewModelScope.launch {
-            val data = SleepData(
-                bedtime = _bedtime.value,
-                wakeTime = _wakeTime.value,
-                wakeUps = _wakeUps.value,
-                totalHours = _totalHours.value,
-                qualityScore = _qualityScore.value
-            )
-            repository.addEntry("sleep", data)
-            _saved.value = true
+            when (val state = logState.value) {
+                is SleepLogState.BedtimeSaved -> updateData(
+                    state.entry,
+                    state.data.copy(bedtime = _bedtime.value, wakeUps = _wakeUps.value)
+                )
+                is SleepLogState.Complete -> updateData(state.entry, completedData(state.data))
+                SleepLogState.None -> repository.addEntry(
+                    "sleep",
+                    SleepData(bedtime = _bedtime.value, wakeTime = null, wakeUps = _wakeUps.value)
+                )
+            }
         }
     }
 
+    fun saveWakeUp() {
+        viewModelScope.launch {
+            when (val state = logState.value) {
+                is SleepLogState.BedtimeSaved -> repository.updateEntry(
+                    // The night belongs to the day you woke up on, matching how a
+                    // one-shot morning save has always been dated.
+                    state.entry.copy(date = todayDateString(), data = gson.toJson(completedData(state.data)))
+                )
+                is SleepLogState.Complete -> updateData(state.entry, completedData(state.data))
+                SleepLogState.None -> repository.addEntry("sleep", completedData(SleepData(bedtime = _bedtime.value)))
+            }
+        }
+    }
+
+    private fun completedData(base: SleepData): SleepData {
+        val hours = computeTotalHours(_bedtime.value, _wakeTime.value)
+        return base.copy(
+            bedtime = _bedtime.value,
+            wakeTime = _wakeTime.value,
+            wakeUps = _wakeUps.value,
+            totalHours = hours,
+            qualityScore = computeQualityScore(hours, _wakeUps.value.size)
+        )
+    }
+
+    private suspend fun updateData(entry: EntryEntity, data: SleepData) {
+        repository.updateEntry(entry.copy(data = gson.toJson(data)))
+    }
+
     companion object {
+        /** A bedtime older than this is an abandoned night, not one awaiting its wake-up. */
+        private const val OPEN_ENTRY_MAX_AGE_MS = 36L * 60 * 60 * 1000
+
         fun computeTotalHours(bedtime: String, wakeTime: String): Float {
             val (bh, bm) = bedtime.split(":").map { it.toIntOrNull() ?: 0 }
             val (wh, wm) = wakeTime.split(":").map { it.toIntOrNull() ?: 0 }

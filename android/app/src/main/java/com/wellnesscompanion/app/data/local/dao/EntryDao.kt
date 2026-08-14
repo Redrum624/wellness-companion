@@ -24,6 +24,10 @@ interface EntryDao {
     @Query("SELECT DISTINCT date FROM entries WHERE category = :category ORDER BY date DESC")
     fun getLoggedDates(category: String): Flow<List<String>>
 
+    /** Latest entry for a category across all days — `date` moves on sleep completion, so order by it first. */
+    @Query("SELECT * FROM entries WHERE category = :category ORDER BY date DESC, timestamp DESC LIMIT 1")
+    fun getLatestByCategory(category: String): Flow<EntryEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: EntryEntity)
 

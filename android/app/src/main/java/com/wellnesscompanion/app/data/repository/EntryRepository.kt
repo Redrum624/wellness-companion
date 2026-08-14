@@ -36,6 +36,9 @@ class EntryRepository @Inject constructor(
     fun getEntriesByDateAndCategory(date: String, category: String): Flow<List<EntryEntity>> =
         entryDao.getEntriesByDateAndCategory(date, category)
 
+    fun getLatestEntry(category: String): Flow<EntryEntity?> =
+        entryDao.getLatestByCategory(category)
+
     suspend fun addEntry(category: String, data: Any): EntryEntity =
         addEntryForDate(category, data, todayDateString())
 

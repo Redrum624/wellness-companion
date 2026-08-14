@@ -53,15 +53,16 @@ fun SleepScreen(
     val wakeUps by viewModel.wakeUps.collectAsState()
     val totalHours by viewModel.totalHours.collectAsState()
     val qualityScore by viewModel.qualityScore.collectAsState()
-    val saved by viewModel.saved.collectAsState()
+    val logState by viewModel.logState.collectAsState()
     val context = LocalContext.current
 
     // Goal celebration — a saved sleep entry meeting the daily goal
     var showCelebration by remember { mutableStateOf(false) }
     var goalWasReached by remember { mutableStateOf(false) }
 
-    LaunchedEffect(saved, totalHours) {
-        if (saved && totalHours >= DailyGoals.SLEEP_MIN_HOURS && !goalWasReached) {
+    LaunchedEffect(logState) {
+        val complete = logState as? SleepLogState.Complete
+        if (complete != null && complete.data.totalHours >= DailyGoals.SLEEP_MIN_HOURS && !goalWasReached) {
             goalWasReached = true
             showCelebration = true
         }
@@ -228,20 +229,8 @@ fun SleepScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Save button
-        if (!saved) {
-            Button(
-                onClick = { viewModel.saveSleep() },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White.copy(alpha = 0.5f),
-                    contentColor = SleepText
-                ),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Save sleep log")
-            }
-        } else {
+        // Save buttons — bedtime can be saved on its own and completed in the morning
+        if (logState is SleepLogState.Complete) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Sleep logged",
@@ -255,6 +244,43 @@ fun SleepScreen(
                     tint = SleepText.copy(alpha = 0.5f),
                     modifier = Modifier.size(14.dp)
                 )
+            }
+        } else {
+            val bedtimeSaved = logState is SleepLogState.BedtimeSaved
+            if (bedtimeSaved) {
+                Text(
+                    "Bedtime saved — log your wake-up when you get up",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SleepText.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { viewModel.saveBedtime() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White.copy(alpha = 0.4f),
+                        contentColor = SleepText
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (bedtimeSaved) "Update bedtime" else "Save bedtime")
+                }
+                Button(
+                    onClick = { viewModel.saveWakeUp() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White.copy(alpha = 0.5f),
+                        contentColor = SleepText
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (bedtimeSaved) "Save wake-up" else "Save full night")
+                }
             }
         }
 
