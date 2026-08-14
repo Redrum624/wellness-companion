@@ -184,3 +184,40 @@ function VCRedistNeeded: Boolean;
 begin
   Result := not FileExists(ExpandConstant('{sys}\vcruntime140.dll'));
 end;
+
+{ ---------------------------------------------------------------------------
+  Upgrade detection. The user's database lives under %APPDATA%\wellness-companion
+  and is never written by this installer (see [UninstallDelete]); these handlers
+  make the upgrade explicit: close the running app so files can be replaced,
+  and tell the user on the Ready page that their data is kept.
+  --------------------------------------------------------------------------- }
+function IsUpgrade: Boolean;
+begin
+  Result :=
+    RegKeyExists(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{7C4E9A16-2B58-4D77-9E3F-5EA1C0DE0001}_is1') or
+    RegKeyExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{7C4E9A16-2B58-4D77-9E3F-5EA1C0DE0001}_is1');
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  if IsUpgrade then
+  begin
+    Log('Existing installation detected - upgrading in place; user data in %APPDATA%\wellness-companion is preserved.');
+    Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM "Wellness Companion.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
+  MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := '';
+  if MemoDirInfo <> '' then Result := Result + MemoDirInfo + NewLine + NewLine;
+  if MemoTasksInfo <> '' then Result := Result + MemoTasksInfo + NewLine + NewLine;
+  if IsUpgrade then
+    Result := Result +
+      'Existing installation detected:' + NewLine +
+      Space + 'Updating in place - your tracked data and settings are kept.' + NewLine;
+end;

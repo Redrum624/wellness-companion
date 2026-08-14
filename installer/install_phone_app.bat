@@ -112,13 +112,21 @@ echo.
 :: Force-stop first: reinstalling over a running process makes the first
 :: launch after `install -r` crash on some devices.
 echo [3/4] Installing Wellness Companion...
+:: Detect an existing installation so the user knows an update keeps their data.
+"%ADB%" shell pm list packages %PACKAGE% 2>nul | findstr /c:"package:%PACKAGE%" >nul
+if not errorlevel 1 (
+    echo   [OK] Wellness Companion is already on this phone - updating in place.
+    echo        Your tracked data stays on the phone.
+)
 "%ADB%" shell am force-stop %PACKAGE% >nul 2>&1
 "%ADB%" install -r "%APK%"
 if errorlevel 1 (
     echo.
     echo   [ERROR] Install failed - see the ADB output above.
-    echo           A signature mismatch means an older build is installed;
-    echo           uninstall it on the phone first, then retry.
+    echo           A signature mismatch means a build from another PC is installed.
+    echo           Do NOT uninstall it before syncing: uninstalling deletes the
+    echo           phone's data. Open the desktop app, sync the phone, and only
+    echo           then uninstall the old app and rerun this installer.
     echo.
     pause
     exit /b 1

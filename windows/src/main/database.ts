@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import { app, ipcMain } from 'electron'
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -7,10 +8,12 @@ let db: Database.Database
 
 export function initDatabase(): void {
   const dbPath = join(app.getPath('userData'), 'wellness.db')
+  const hadExistingDb = existsSync(dbPath)
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
   createTables()
   migrateTables()
+  backupOnVersionChange(hadExistingDb)
 }
 
 /**
@@ -81,6 +84,57 @@ function migrateTables(): void {
   const peopleCols = db.prepare('PRAGMA table_info(people)').all().map((c: any) => c.name)
   if (!peopleCols.includes('deleted_at')) {
     db.exec('ALTER TABLE people ADD COLUMN deleted_at INTEGER')
+  }
+}
+
+const LAST_VERSION_KEY = 'app.last_run_version'
+const MAX_DB_BACKUPS = 5
+
+/**
+ * Update safety net: the first launch after an app update snapshots the
+ * database before normal use resumes, so a bad migration or broken build can
+ * never take the only copy of the user's data with it. Uses SQLite's online
+ * backup API (safe under WAL). The version marker is only advanced after a
+ * successful backup, so a failed backup retries on the next launch.
+ */
+function backupOnVersionChange(hadExistingDb: boolean): void {
+  const current = app.getVersion()
+  const row: any = db.prepare('SELECT value FROM settings WHERE key = ?').get(LAST_VERSION_KEY)
+  const previous: string | null = row?.value ?? null
+  if (previous === current) return
+
+  const stamp = (): void => {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(LAST_VERSION_KEY, current)
+  }
+  if (!hadExistingDb) {
+    stamp()
+    return
+  }
+
+  const backupDir = join(app.getPath('userData'), 'backups')
+  mkdirSync(backupDir, { recursive: true })
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const dest = join(backupDir, `wellness-v${previous ?? 'pre-1.2.0'}-${ts}.db`)
+  db.backup(dest)
+    .then(() => {
+      stamp()
+      pruneBackups(backupDir)
+      console.log(`Database backed up before first run of v${current}: ${dest}`)
+    })
+    .catch((err) => console.error('Pre-update database backup failed:', err))
+}
+
+function pruneBackups(backupDir: string): void {
+  try {
+    const backups = readdirSync(backupDir)
+      .filter((f) => f.startsWith('wellness-') && f.endsWith('.db'))
+      .map((f) => ({ f, mtime: statSync(join(backupDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+    for (const { f } of backups.slice(MAX_DB_BACKUPS)) {
+      unlinkSync(join(backupDir, f))
+    }
+  } catch (err) {
+    console.error('Backup pruning failed:', err)
   }
 }
 
