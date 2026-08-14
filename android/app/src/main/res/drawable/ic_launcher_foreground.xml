@@ -1,30 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
+    <!-- Windows icon.svg geometry x 108/512, so both platforms render the
+         same art. Keep in sync with windows/resources/icon.svg. -->
+
     <!-- Stem -->
     <path
         android:strokeColor="#48A88A"
-        android:strokeWidth="3.2"
+        android:strokeWidth="3.4"
         android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="M54,82 C54,70 52,62 50,56" />
+        android:pathData="M54,84.4 C54,71.7 52.3,63.3 50.2,57" />
 
     <!-- Left leaf (smaller) -->
+    <path android:pathData="M48.9,58 C44.3,52.7 35.9,48.5 29.5,50.6 C27.4,57 30.6,65.4 39,65.4 C44.3,65.4 48.1,62.2 48.9,58 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="48.9" android:startY="48.5"
+                android:endX="29.5" android:endY="65.4"
+                android:startColor="#5DCAA5" android:endColor="#48A88A" />
+        </aapt:attr>
+    </path>
+
+    <!-- Left leaf vein -->
     <path
-        android:fillColor="#48A88A"
-        android:pathData="M49,57 C44,52 37,49 33,50 C31,55 33,62 39,63 C44,63 48,60 49,57 Z" />
+        android:strokeColor="#3D8A70"
+        android:strokeWidth="0.7"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M47.5,59.1 C42.2,58 36.9,55.9 32.7,53.8" />
 
     <!-- Right leaf (main, larger) -->
-    <path
-        android:fillColor="#5DCAA5"
-        android:pathData="M51,54 C54,46 60,36 70,28 C78,30 83,38 81,48 C79,56 72,62 63,62 C57,62 53,59 51,54 Z" />
+    <path android:pathData="M51.7,54.8 C54.8,46.4 61.2,35.9 71.7,27.4 C80.2,29.5 84.4,38 82.3,48.5 C80.2,57 72.8,63.3 63.3,63.3 C57,63.3 52.7,60.1 51.7,54.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="51.7" android:startY="27.4"
+                android:endX="84.4" android:endY="63.3"
+                android:startColor="#7BE0C0" android:endColor="#5DCAA5" />
+        </aapt:attr>
+    </path>
 
-    <!-- Heart on right leaf -->
+    <!-- Right leaf vein -->
+    <path
+        android:strokeColor="#4AA88A"
+        android:strokeWidth="0.75"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54.8,54.8 C59.1,48.5 65.4,41.1 71.7,34.8" />
+
+    <!-- Heart on the right leaf -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M66,42 C66,39 63,37 60,39 C57,37 54,39 54,42 C54,46 60,51 60,51 C60,51 66,46 66,42 Z" />
+        android:pathData="M65.4,43.2 C65.4,40.5 62.9,38.4 60.3,40.5 C57.8,38.4 55.3,40.5 55.3,43.2 C55.3,47.4 60.3,51.7 60.3,51.7 C60.3,51.7 65.4,47.4 65.4,43.2 Z" />
 </vector>
