@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { MoveRight, X, Check } from 'lucide-react'
 import PageLayout from '../components/PageLayout'
 import { categoryColors } from '../styles/theme'
@@ -6,12 +6,14 @@ import { useDateNav } from '../hooks/useDateNav'
 import { useEntries } from '../hooks/useEntries'
 import { useDatabase } from '../hooks/useDatabase'
 import type { SleepData } from '../types/entry'
+import { parseData } from '../types/entry'
 
 const colors = categoryColors.sleep
 
 function computeSleepHours(bedtime: string, wakeTime: string): number {
   const [bh, bm] = bedtime.split(':').map(Number)
   const [wh, wm] = wakeTime.split(':').map(Number)
+  if ([bh, bm, wh, wm].some(n => !Number.isFinite(n))) return 0
   let bedMin = bh * 60 + bm
   let wakeMin = wh * 60 + wm
   if (wakeMin <= bedMin) wakeMin += 24 * 60
@@ -34,15 +36,43 @@ export default function SleepPage() {
   const [wakeUps, setWakeUps] = useState<string[]>([])
   const [newWakeUp, setNewWakeUp] = useState('')
 
+  const existing = entries[0] ?? null
+  const existingData = existing ? parseData<SleepData>(existing) : null
+  const complete = !!existingData?.wakeTime
+  const partial = !!existingData && !existingData.wakeTime
+
+  // Load the saved times back into the inputs (the page used to always show the
+  // defaults even when the day was already logged).
+  useEffect(() => {
+    if (existingData) {
+      setBedtime(existingData.bedtime)
+      if (existingData.wakeTime) setWakeTime(existingData.wakeTime)
+      setWakeUps(existingData.wakeUps ?? [])
+    } else {
+      setBedtime('23:00')
+      setWakeTime('07:00')
+      setWakeUps([])
+    }
+  }, [existing?.id, date])
+
   const totalHours = useMemo(() => computeSleepHours(bedtime, wakeTime), [bedtime, wakeTime])
   const quality = useMemo(() => computeQuality(totalHours, wakeUps.length), [totalHours, wakeUps])
-  const saved = entries.length > 0
 
-  const saveSleep = async () => {
-    const data: SleepData = { bedtime, wakeTime, wakeUps, totalHours, qualityScore: quality }
-    await db.insertEntry('sleep', date, JSON.stringify(data))
+  const buildComplete = (): SleepData => {
+    const hours = computeSleepHours(bedtime, wakeTime)
+    return { bedtime, wakeTime, wakeUps, totalHours: hours, qualityScore: computeQuality(hours, wakeUps.length) }
+  }
+
+  const persist = async (data: SleepData) => {
+    if (existing) await db.updateEntry(existing.id, JSON.stringify(data))
+    else await db.insertEntry('sleep', date, JSON.stringify(data))
     refresh()
   }
+
+  const saveBedtime = () =>
+    persist(complete ? buildComplete() : { bedtime, wakeTime: null, wakeUps, totalHours: 0, qualityScore: 0 })
+
+  const saveWakeUp = () => persist(buildComplete())
 
   return (
     <PageLayout categoryKey="sleep" title="🌙 Sleep" date={date} onDateChange={goTo}>
@@ -103,16 +133,30 @@ export default function SleepPage() {
         ))}
       </div>
 
-      {!saved ? (
-        <button onClick={saveSleep} style={{
-          width: '100%', border: 'none', borderRadius: 14, padding: '10px',
-          background: 'rgba(255,255,255,0.5)', color: colors.text,
-          fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit'
-        }}>Save sleep log</button>
-      ) : (
+      {complete ? (
         <div style={{ textAlign: 'center', fontSize: 14, color: `${colors.text}70`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
           Sleep logged <Check size={16} strokeWidth={2} />
         </div>
+      ) : (
+        <>
+          {partial && (
+            <div style={{ textAlign: 'center', fontSize: 12, color: `${colors.text}70`, marginBottom: 8 }}>
+              Bedtime saved — log your wake-up when you get up
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={saveBedtime} style={{
+              flex: 1, border: 'none', borderRadius: 14, padding: '10px',
+              background: 'rgba(255,255,255,0.4)', color: colors.text,
+              fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit'
+            }}>{partial ? 'Update bedtime' : 'Save bedtime'}</button>
+            <button onClick={saveWakeUp} style={{
+              flex: 1, border: 'none', borderRadius: 14, padding: '10px',
+              background: 'rgba(255,255,255,0.5)', color: colors.text,
+              fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit'
+            }}>{partial ? 'Save wake-up' : 'Save full night'}</button>
+          </div>
+        </>
       )}
     </PageLayout>
   )

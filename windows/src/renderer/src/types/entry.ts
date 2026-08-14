@@ -16,7 +16,7 @@ export interface WaterData { ml: number; type: 'drink' | 'refill'; bottleCapacit
 export interface FoodData { mealType: string; description: string; photoPath?: string }
 export interface BathroomData { type?: string; note?: string }
 export interface HealthData { energyLevel?: number; dailyRating?: number; symptoms: string[]; note?: string }
-export interface SleepData { bedtime: string; wakeTime: string; wakeUps: string[]; totalHours: number; qualityScore: number }
+export interface SleepData { bedtime: string; wakeTime?: string | null; wakeUps: string[]; totalHours: number; qualityScore: number }
 export interface EmotionData { emotion: string; note?: string }
 export interface InteractionData { people: string[]; qualityRating: number; journalText: string; promptUsed?: string }
 export interface ChoreTask { name: string; category?: string; completed: boolean; timeSpentMin?: number; completedAt?: number }

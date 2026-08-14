@@ -24,12 +24,14 @@ export function computeSummary(category: CategoryKey, entries: Entry[]): string 
       return `${count}/${DailyGoals.HEALTH_ENERGY_CHECKINS} logs`
     }
     case 'sleep': {
-      const sleep = entries.length > 0 ? parseData<SleepData>(entries[0]) : null
-      if (sleep) {
-        const h = Math.floor(sleep.totalHours)
-        const m = Math.round((sleep.totalHours - h) * 60)
+      const sleeps = entries.map(e => parseData<SleepData>(e)).filter(Boolean) as SleepData[]
+      const completed = sleeps.find(s => s.wakeTime)
+      if (completed) {
+        const h = Math.floor(completed.totalHours)
+        const m = Math.round((completed.totalHours - h) * 60)
         return `${h}h ${m}m`
       }
+      if (sleeps.length > 0) return `Bedtime ${sleeps[0].bedtime}`
       return `Goal: ${DailyGoals.SLEEP_IDEAL_HOURS}h`
     }
     case 'emotions': {
