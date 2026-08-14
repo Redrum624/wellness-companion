@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { app, ipcMain } from 'electron'
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -90,12 +90,21 @@ function migrateTables(): void {
 const LAST_VERSION_KEY = 'app.last_run_version'
 const MAX_DB_BACKUPS = 5
 
+/** Tracks the in-flight pre-update backup, if any, so quit can wait on it. */
+let pendingBackup: Promise<void> | null = null
+
 /**
  * Update safety net: the first launch after an app update snapshots the
  * database before normal use resumes, so a bad migration or broken build can
  * never take the only copy of the user's data with it. Uses SQLite's online
  * backup API (safe under WAL). The version marker is only advanced after a
  * successful backup, so a failed backup retries on the next launch.
+ *
+ * Everything past the fresh-install early return is wrapped in try/catch:
+ * this runs inside initDatabase(), which runs inside the un-caught
+ * app.whenReady().then(...) chain in index.ts, so a synchronous throw here
+ * (e.g. mkdirSync failing on a full disk or locked-down ACL) must never be
+ * allowed to propagate and silently prevent the window from ever opening.
  */
 function backupOnVersionChange(hadExistingDb: boolean): void {
   const current = app.getVersion()
@@ -111,17 +120,47 @@ function backupOnVersionChange(hadExistingDb: boolean): void {
     return
   }
 
-  const backupDir = join(app.getPath('userData'), 'backups')
-  mkdirSync(backupDir, { recursive: true })
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const dest = join(backupDir, `wellness-v${previous ?? 'pre-1.2.0'}-${ts}.db`)
-  db.backup(dest)
-    .then(() => {
-      stamp()
-      pruneBackups(backupDir)
-      console.log(`Database backed up before first run of v${current}: ${dest}`)
-    })
-    .catch((err) => console.error('Pre-update database backup failed:', err))
+  try {
+    const backupDir = join(app.getPath('userData'), 'backups')
+    mkdirSync(backupDir, { recursive: true })
+
+    // A prior run could have been killed mid-backup, leaving a partial
+    // "<dest>.db.tmp" behind. It is not a usable backup and pruning can't
+    // tell it apart from a good one by name alone, so clear it up front.
+    try {
+      for (const f of readdirSync(backupDir)) {
+        if (f.endsWith('.db.tmp')) unlinkSync(join(backupDir, f))
+      }
+    } catch (err) {
+      console.error('Stale backup temp-file cleanup failed:', err)
+    }
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const dest = join(backupDir, `wellness-v${previous ?? 'pre-1.2.0'}-${ts}.db`)
+    const tmp = `${dest}.tmp`
+    pendingBackup = db
+      .backup(tmp)
+      .then(() => {
+        // Only becomes the real backup file once fully written, so a reader
+        // (pruning, the user, a future restore flow) never sees a partial one.
+        renameSync(tmp, dest)
+        stamp()
+        pruneBackups(backupDir)
+        console.log(`Database backed up before first run of v${current}: ${dest}`)
+      })
+      .catch((err) => console.error('Pre-update database backup failed:', err))
+      .finally(() => {
+        pendingBackup = null
+      })
+  } catch (err) {
+    console.error('Pre-update backup setup failed:', err)
+  }
+}
+
+/** Give an in-flight pre-update backup a moment to finish before the DB closes. */
+export async function waitForPendingBackup(timeoutMs = 3000): Promise<void> {
+  if (!pendingBackup) return
+  await Promise.race([pendingBackup, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))])
 }
 
 function pruneBackups(backupDir: string): void {

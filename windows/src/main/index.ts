@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { initDatabase, registerDatabaseHandlers, closeDatabase } from './database'
+import { initDatabase, registerDatabaseHandlers, closeDatabase, waitForPendingBackup } from './database'
 import { registerLlmHandlers, disposeLlm } from './llm'
 import { startSyncServer, stopSyncServer, registerSyncHandlers } from './sync-server'
 
@@ -110,6 +110,11 @@ app.on('before-quit', (event) => {
       await disposeLlm()
     } catch (err) {
       console.error('LLM disposal failed:', err)
+    }
+    try {
+      await waitForPendingBackup()
+    } catch (err) {
+      console.error('waiting for pending backup failed:', err)
     }
     try {
       closeDatabase()
