@@ -12,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -61,10 +62,6 @@ class IdeasViewModel @Inject constructor(
             IdeaEntry(e.id, e.timestamp, data.title, data.body, data.tags)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // Keep raw entries for edit/delete operations
-    private val rawEntries = repository.getTodayEntries("ideas")
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Everything before today, last 365 days, newest day first. The phone's DB
@@ -127,11 +124,13 @@ class IdeasViewModel @Inject constructor(
     }
 
     fun startEdit(ideaEntry: IdeaEntry) {
-        val raw = rawEntries.value.find { it.id == ideaEntry.id } ?: return
-        _editingEntry.value = raw
-        _title.value = ideaEntry.title
-        _body.value = ideaEntry.body
-        _tags.value = ideaEntry.tags
+        viewModelScope.launch {
+            val raw = repository.getTodayEntries("ideas").first().find { it.id == ideaEntry.id } ?: return@launch
+            _editingEntry.value = raw
+            _title.value = ideaEntry.title
+            _body.value = ideaEntry.body
+            _tags.value = ideaEntry.tags
+        }
     }
 
     fun cancelEdit() {
@@ -142,8 +141,8 @@ class IdeasViewModel @Inject constructor(
     }
 
     fun delete(ideaEntry: IdeaEntry) {
-        val raw = rawEntries.value.find { it.id == ideaEntry.id } ?: return
         viewModelScope.launch {
+            val raw = repository.getTodayEntries("ideas").first().find { it.id == ideaEntry.id } ?: return@launch
             repository.deleteEntry(raw)
             if (_editingEntry.value?.id == ideaEntry.id) cancelEdit()
         }
