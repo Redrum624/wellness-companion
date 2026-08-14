@@ -203,13 +203,22 @@ class SyncManager @Inject constructor(
                 val id = o.optString("id")
                 if (id.isBlank()) continue
                 runCatching {
-                    db.personDao().insertSync(
-                        PersonEntity(
-                            id = id,
-                            name = o.optString("name"),
-                            createdAt = o.optLong("created_at", nowMillis())
+                    val deletedAt = if (o.isNull("deleted_at")) null
+                                    else o.optLong("deleted_at").takeIf { it > 0 }
+                    val existing = db.personDao().getByIdSync(id)
+                    if (existing == null) {
+                        db.personDao().insertSync(
+                            PersonEntity(
+                                id = id,
+                                name = o.optString("name"),
+                                createdAt = o.optLong("created_at", nowMillis()),
+                                deletedAt = deletedAt
+                            )
                         )
-                    )
+                    } else if (deletedAt != null && existing.deletedAt == null) {
+                        // Tombstones are grow-only: never resurrect, never clear.
+                        db.personDao().markDeletedSync(id, deletedAt)
+                    }
                 }.onFailure { Log.e(TAG, "person ingest failed", it) }
             }
         }
@@ -272,6 +281,7 @@ class SyncManager @Inject constructor(
                 put("people", JSONArray(people.map { p ->
                     JSONObject().apply {
                         put("id", p.id); put("name", p.name); put("created_at", p.createdAt)
+                        p.deletedAt?.let { put("deleted_at", it) }
                     }
                 }))
                 put("chore_templates", JSONArray(choreTemplates.map { t ->

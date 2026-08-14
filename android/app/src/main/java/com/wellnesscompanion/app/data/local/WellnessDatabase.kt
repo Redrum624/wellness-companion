@@ -23,7 +23,7 @@ import com.wellnesscompanion.app.data.local.entity.SettingEntity
         HobbyEntity::class,
         PersonEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class WellnessDatabase : RoomDatabase() {
@@ -60,6 +60,12 @@ abstract class WellnessDatabase : RoomDatabase() {
                         created_at INTEGER NOT NULL
                     )
                 """.trimIndent())
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE people ADD COLUMN deleted_at INTEGER")
             }
         }
     }

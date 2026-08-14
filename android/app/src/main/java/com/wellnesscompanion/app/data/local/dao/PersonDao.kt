@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PersonDao {
 
-    @Query("SELECT * FROM people ORDER BY name ASC")
+    @Query("SELECT * FROM people WHERE deleted_at IS NULL ORDER BY name ASC")
     fun getAll(): Flow<List<PersonEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -24,8 +24,16 @@ interface PersonDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertSync(person: PersonEntity)
 
+    /** Sync must see tombstones too, so this stays unfiltered. */
     @Query("SELECT * FROM people ORDER BY name ASC")
     fun getAllSync(): List<PersonEntity>
+
+    @Query("SELECT * FROM people WHERE id = :id")
+    fun getByIdSync(id: String): PersonEntity?
+
+    /** Grow-only tombstone: only ever sets deleted_at, never clears it. */
+    @Query("UPDATE people SET deleted_at = :deletedAt WHERE id = :id AND deleted_at IS NULL")
+    fun markDeletedSync(id: String, deletedAt: Long)
 
     @Delete
     suspend fun delete(person: PersonEntity)

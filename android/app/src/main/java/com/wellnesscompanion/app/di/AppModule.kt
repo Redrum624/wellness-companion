@@ -31,7 +31,7 @@ object AppModule {
             WellnessDatabase::class.java,
             "wellness.db"
         )
-            .addMigrations(WellnessDatabase.MIGRATION_1_2)
+            .addMigrations(WellnessDatabase.MIGRATION_1_2, WellnessDatabase.MIGRATION_2_3)
             .build()
     }
 
