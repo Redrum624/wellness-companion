@@ -54,6 +54,7 @@ fun SleepScreen(
     val totalHours by viewModel.totalHours.collectAsState()
     val qualityScore by viewModel.qualityScore.collectAsState()
     val logState by viewModel.logState.collectAsState()
+    val saving by viewModel.saving.collectAsState()
     val context = LocalContext.current
 
     // Goal celebration — a saved sleep entry meeting the daily goal
@@ -245,6 +246,19 @@ fun SleepScreen(
                     modifier = Modifier.size(14.dp)
                 )
             }
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { viewModel.saveBedtime() },
+                enabled = !saving,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White.copy(alpha = 0.4f),
+                    contentColor = SleepText
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save tonight's bedtime")
+            }
         } else {
             val bedtimeSaved = logState is SleepLogState.BedtimeSaved
             if (bedtimeSaved) {
@@ -261,6 +275,7 @@ fun SleepScreen(
             ) {
                 Button(
                     onClick = { viewModel.saveBedtime() },
+                    enabled = !saving,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White.copy(alpha = 0.4f),
                         contentColor = SleepText
@@ -272,6 +287,7 @@ fun SleepScreen(
                 }
                 Button(
                     onClick = { viewModel.saveWakeUp() },
+                    enabled = !saving,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White.copy(alpha = 0.5f),
                         contentColor = SleepText

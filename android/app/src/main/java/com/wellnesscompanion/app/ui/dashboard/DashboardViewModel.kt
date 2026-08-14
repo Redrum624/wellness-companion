@@ -53,16 +53,16 @@ class DashboardViewModel @Inject constructor(
                     else "$count/${DailyGoals.HEALTH_ENERGY_CHECKINS} logs"
                 }
                 Category.SLEEP -> {
-                    val sleep = catEntries.firstOrNull()?.let { e ->
-                        gson.fromJsonSafe<SleepData>(e.data)
-                    }
+                    val sleeps = catEntries.mapNotNull { e -> gson.fromJsonSafe<SleepData>(e.data) }
+                    val completed = sleeps.firstOrNull { it.wakeTime != null }
+                    val partial = sleeps.firstOrNull { it.wakeTime == null }
                     when {
-                        sleep?.wakeTime != null -> {
-                            val h = sleep.totalHours.toInt()
-                            val m = ((sleep.totalHours - h) * 60).toInt()
+                        completed != null -> {
+                            val h = completed.totalHours.toInt()
+                            val m = ((completed.totalHours - h) * 60).toInt()
                             "${h}h ${m}m"
                         }
-                        sleep != null -> "Bedtime ${sleep.bedtime}"
+                        partial != null -> "Bedtime ${partial.bedtime}"
                         else -> "Goal: ${DailyGoals.SLEEP_IDEAL_HOURS.toInt()}h"
                     }
                 }

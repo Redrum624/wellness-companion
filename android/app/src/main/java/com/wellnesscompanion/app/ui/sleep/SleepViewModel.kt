@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -46,23 +47,30 @@ class SleepViewModel @Inject constructor(
     private val _qualityScore = MutableStateFlow(0)
     val qualityScore = _qualityScore.asStateFlow()
 
+    private val _saving = MutableStateFlow(false)
+    val saving = _saving.asStateFlow()
+
     /**
      * The save flow is an upsert against the latest sleep entry:
      *  - wakeTime == null and recent  -> a bedtime waiting for its wake-up
      *  - wakeTime != null and today   -> tonight is logged
      *  - anything else                -> fresh slate (old nights stay in history)
      */
-    val logState: StateFlow<SleepLogState> = repository.getLatestEntry("sleep").map { entry ->
-        if (entry == null) return@map SleepLogState.None
-        val data = gson.fromJsonSafe<SleepData>(entry.data) ?: return@map SleepLogState.None
-        when {
+    private fun resolveState(entry: EntryEntity?): SleepLogState {
+        if (entry == null) return SleepLogState.None
+        val data = gson.fromJsonSafe<SleepData>(entry.data) ?: return SleepLogState.None
+        return when {
             data.wakeTime == null && nowMillis() - entry.modifiedAt <= OPEN_ENTRY_MAX_AGE_MS ->
                 SleepLogState.BedtimeSaved(entry, data)
             data.wakeTime != null && entry.date == todayDateString() ->
                 SleepLogState.Complete(entry, data)
             else -> SleepLogState.None
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SleepLogState.None)
+    }
+
+    val logState: StateFlow<SleepLogState> = repository.getLatestEntry("sleep")
+        .map { resolveState(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SleepLogState.None)
 
     init {
         recalculate()
@@ -114,30 +122,44 @@ class SleepViewModel @Inject constructor(
 
     fun saveBedtime() {
         viewModelScope.launch {
-            when (val state = logState.value) {
-                is SleepLogState.BedtimeSaved -> updateData(
-                    state.entry,
-                    state.data.copy(bedtime = _bedtime.value, wakeUps = _wakeUps.value)
-                )
-                is SleepLogState.Complete -> updateData(state.entry, completedData(state.data))
-                SleepLogState.None -> repository.addEntry(
-                    "sleep",
-                    SleepData(bedtime = _bedtime.value, wakeTime = null, wakeUps = _wakeUps.value)
-                )
+            if (_saving.value) return@launch
+            _saving.value = true
+            try {
+                when (val state = resolveState(repository.getLatestEntry("sleep").first())) {
+                    is SleepLogState.BedtimeSaved -> updateData(
+                        state.entry,
+                        state.data.copy(bedtime = _bedtime.value, wakeUps = _wakeUps.value)
+                    )
+                    is SleepLogState.Complete ->
+                        // Tonight is a new night; the completed row stays as-is.
+                        repository.addEntry("sleep", SleepData(bedtime = _bedtime.value))
+                    SleepLogState.None -> repository.addEntry(
+                        "sleep",
+                        SleepData(bedtime = _bedtime.value, wakeTime = null, wakeUps = _wakeUps.value)
+                    )
+                }
+            } finally {
+                _saving.value = false
             }
         }
     }
 
     fun saveWakeUp() {
         viewModelScope.launch {
-            when (val state = logState.value) {
-                is SleepLogState.BedtimeSaved -> repository.updateEntry(
-                    // The night belongs to the day you woke up on, matching how a
-                    // one-shot morning save has always been dated.
-                    state.entry.copy(date = todayDateString(), data = gson.toJson(completedData(state.data)))
-                )
-                is SleepLogState.Complete -> updateData(state.entry, completedData(state.data))
-                SleepLogState.None -> repository.addEntry("sleep", completedData(SleepData(bedtime = _bedtime.value)))
+            if (_saving.value) return@launch
+            _saving.value = true
+            try {
+                when (val state = resolveState(repository.getLatestEntry("sleep").first())) {
+                    is SleepLogState.BedtimeSaved -> repository.updateEntry(
+                        // The night belongs to the day you woke up on, matching how a
+                        // one-shot morning save has always been dated.
+                        state.entry.copy(date = todayDateString(), data = gson.toJson(completedData(state.data)))
+                    )
+                    is SleepLogState.Complete -> updateData(state.entry, completedData(state.data))
+                    SleepLogState.None -> repository.addEntry("sleep", completedData(SleepData(bedtime = _bedtime.value)))
+                }
+            } finally {
+                _saving.value = false
             }
         }
     }
