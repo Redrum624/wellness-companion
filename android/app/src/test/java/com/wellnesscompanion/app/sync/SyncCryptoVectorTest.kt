@@ -109,6 +109,20 @@ class SyncCryptoVectorTest {
     }
 
     @Test
+    fun `pskFromSecret matches the pinned psk_from_secret vector`() {
+        // The `handshake` section takes `psk` as an INPUT, so it pins nothing
+        // about how the pairing secret becomes the PSK. Without this vector the
+        // only check available was "my hkdf agrees with my hkdf", which proves
+        // nothing cross-platform: a divergence here would surface to the user
+        // as "the code you typed is wrong", with no other symptom.
+        val p = section("psk_from_secret")
+        val secret = unhex(str(p, "secret_hex"))
+        assertEquals(SyncCrypto.PAIRING_SECRET_BYTES, secret.size)
+        assertEquals(p.get("length").asInt, 32)
+        assertEquals(str(p, "expected_psk_hex"), hex(SyncCrypto.pskFromSecret(secret)))
+    }
+
+    @Test
     fun `pskFromSecret is HKDF(secret, empty, wc-psk, 32) and is deterministic`() {
         val secret = ByteArray(16) { 0xAB.toByte() }
         val psk = SyncCrypto.pskFromSecret(secret)

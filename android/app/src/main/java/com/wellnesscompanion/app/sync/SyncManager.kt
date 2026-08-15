@@ -108,6 +108,14 @@ class SyncManager @Inject constructor(
             "Sync failed: the PC broke the encrypted protocol. Try again."
         private const val MSG_RECORD_REJECTED =
             "Sync failed: the encrypted channel was corrupted. Try again."
+        /**
+         * Distinct from [MSG_RECORD_REJECTED] on purpose: the record was
+         * authentic and the tag verified — what failed was applying it on THIS
+         * phone. Collapsing the two would point a future debugger at a crypto
+         * bug that does not exist.
+         */
+        private const val MSG_INGEST_FAILED =
+            "Sync failed while saving the PC's data on this phone. Try again."
         private const val MSG_GENERIC_FAILURE = "Sync failed — try again."
         private const val MSG_CLOSED_EARLY = "The PC closed the connection before the sync finished."
     }
@@ -167,20 +175,24 @@ class SyncManager @Inject constructor(
      */
     suspend fun savePairing(code: String) {
         val parts = SyncCrypto.decodePairingCode(code)
-
         val settings = db.settingsDao()
-        settings.setSetting(SettingEntity(key = PAIRING_KEY_ID_KEY, value = parts.keyId))
-        settings.setSetting(
+
+        val rows = mutableListOf(
+            SettingEntity(key = PAIRING_KEY_ID_KEY, value = parts.keyId),
             SettingEntity(
                 key = DEVICE_KEY_KEY,
                 value = Base64.getEncoder().encodeToString(parts.secret)
-            )
+            ),
+            SettingEntity(key = LAST_SYNC_KEY, value = "0")
         )
-        settings.setSetting(SettingEntity(key = LAST_SYNC_KEY, value = "0"))
         // Retire the dead v3 credential rather than leaving it in the database.
         if (!settings.getSetting(LEGACY_PAIRING_TOKEN_KEY).isNullOrEmpty()) {
-            settings.setSetting(SettingEntity(key = LEGACY_PAIRING_TOKEN_KEY, value = ""))
+            rows += SettingEntity(key = LEGACY_PAIRING_TOKEN_KEY, value = "")
         }
+        // ONE transaction: a crash between two separate writes could otherwise
+        // leave the new key id stored against the old secret.
+        settings.setSettings(rows)
+
         _repairPrompt.value = null
     }
 
@@ -240,7 +252,14 @@ class SyncManager @Inject constructor(
                     _repairPrompt.value = result.message
                     SyncStatus.NeedsRepair(result.message)
                 }
-                result.succeeded -> SyncStatus.Done(result.message)
+                result.succeeded -> {
+                    // A completed handshake is proof the PC still holds this
+                    // phone's key, so a banner left over from an earlier
+                    // failure (or from a forged pre-channel `error` anyone on
+                    // the LAN can send) is now a false alarm. Retract it.
+                    _repairPrompt.value = null
+                    SyncStatus.Done(result.message)
+                }
                 else -> SyncStatus.Error(result.message)
             }
         } catch (e: Exception) {
@@ -708,26 +727,46 @@ class SyncManager @Inject constructor(
                         webSocket.close(1002, "binary frame before the handshake")
                         return finishFail(webSocket, MSG_PROTOCOL_VIOLATION)
                     }
+                    // Stage 1 — RECORD level. A failure here is the channel
+                    // itself: a bad tag, a replayed counter, a truncated frame.
                     val plaintext = try {
                         // One-shot: the counter is checked first and the
                         // plaintext only exists after the tag verifies.
                         SyncCrypto.openRecord(key, counterIn, SyncCrypto.DIR_S2C, frame)
                     } catch (e: Exception) {
                         // No reply — any reply here would have to be plaintext.
+                        Log.e(TAG, "record failed its tag or counter check (${e.javaClass.simpleName})")
                         webSocket.close(1008, "record rejected")
                         return finishFail(webSocket, MSG_RECORD_REJECTED)
                     }
                     counterIn++
 
-                    val msg = JSONObject(String(plaintext, Charsets.UTF_8))
-                    when (msg.optString("type")) {
-                        "auth_ok" -> sendEncrypted(webSocket, pushData)
-                        "full_sync_response" -> applyFullSyncResponse(webSocket, msg)
-                        "error" -> finishFail(
-                            webSocket,
-                            msg.optString("message").ifBlank { MSG_GENERIC_FAILURE }
-                        )
-                        else -> Log.w(TAG, "ignoring unknown record type")
+                    // Stage 2 — APPLICATION level. The record was authentic, so
+                    // anything that fails from here — malformed JSON inside a
+                    // verified record, a Room write, sealing our own reply — is
+                    // a LOCAL fault. Reporting it as "the channel was corrupted"
+                    // would send a future debugger after a phantom crypto bug,
+                    // so it gets its own close code and its own message. Still
+                    // fail-closed: socket down, cursor not advanced.
+                    var recordType = "?"
+                    try {
+                        val msg = JSONObject(String(plaintext, Charsets.UTF_8))
+                        recordType = msg.optString("type")
+                        when (recordType) {
+                            "auth_ok" -> sendEncrypted(webSocket, pushData)
+                            "full_sync_response" -> applyFullSyncResponse(webSocket, msg)
+                            "error" -> finishFail(
+                                webSocket,
+                                msg.optString("message").ifBlank { MSG_GENERIC_FAILURE }
+                            )
+                            else -> Log.w(TAG, "ignoring unknown record type")
+                        }
+                    } catch (e: Exception) {
+                        // Type and record kind only — the payload is the user's
+                        // health data and does not belong in logcat.
+                        Log.e(TAG, "failed to apply a verified '$recordType' record (${e.javaClass.simpleName})")
+                        webSocket.close(1011, "local error applying a record")
+                        finishFail(webSocket, MSG_INGEST_FAILED)
                     }
                 }
 
@@ -782,12 +821,17 @@ class SyncManager @Inject constructor(
                         try {
                             handleRecord(webSocket, bytes.toByteArray())
                         } catch (e: Exception) {
-                            Log.e(TAG, "record rejected (${e.javaClass.simpleName})")
+                            // handleRecord classifies record-level and
+                            // application-level failures itself; reaching here
+                            // means neither stage was even entered, so this
+                            // stays deliberately neutral rather than blaming
+                            // the channel.
+                            Log.e(TAG, "binary frame handling failed (${e.javaClass.simpleName})")
                             try {
-                                webSocket.close(1008, "record rejected")
+                                webSocket.close(1011, "internal error")
                             } catch (_: Exception) {
                             }
-                            finishFail(webSocket, MSG_RECORD_REJECTED)
+                            finishFail(webSocket, MSG_GENERIC_FAILURE)
                         }
                     }
 

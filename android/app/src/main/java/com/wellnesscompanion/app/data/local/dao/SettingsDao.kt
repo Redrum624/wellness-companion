@@ -18,4 +18,15 @@ interface SettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSetting(setting: SettingEntity)
+
+    /**
+     * Write several rows in ONE transaction (Room wraps a list `@Insert` in
+     * `beginTransaction`/`endTransaction`). Pairing needs this: writing
+     * `sync.key_id`, `sync.device_key` and the cursor reset as three separate
+     * statements leaves a crash window in which a NEW key id is stored against
+     * the OLD secret — recoverable via `4006`, but a pointless way to strand
+     * a user mid-pairing.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun setSettings(settings: List<SettingEntity>)
 }

@@ -36,6 +36,14 @@
     "k_c2s": "d4c4d8f6f8c3463e1358165d479e1abaabe5845975960cd5a36ad8b4f1e8df2a",
     "k_s2c": "cdb00016a118e8c2d786d36994c545549d9dafa5d6daf8333522c5301935166a"
   },
+  "psk_from_secret": {
+    "rule": "psk = HKDF-SHA256(ikm=secret, salt=empty, info=\"wc-psk\", len=32)",
+    "info": "wc-psk",
+    "salt": "",
+    "length": 32,
+    "secret_hex": "4f1c9a37e0b5d284c6317fa8905e2db3",
+    "expected_psk_hex": "041bacb0fab39cc76fe9963a3e0bd64a7c5764e6181c42faca12dfec39fab4cf"
+  },
   "gcm_record": {
     "key": "9f3e337f8a863c67093205ec596fde6ba547e559e95e4a2cc707cfa05529fd8c",
     "nonce": "633273000000000000000000",

@@ -158,6 +158,47 @@ print("[ok] handshake vector derived and cross-checked")
 
 
 # ---------------------------------------------------------------------------
+# Section 2b: psk_from_secret -- promoting the pairing secret to the PSK
+#
+# The `handshake` section above takes `psk` as an INPUT, so it pins everything
+# downstream of the PSK but says nothing about how the PSK is produced from the
+# 128-bit pairing secret. That left one derivation step where each platform
+# could only check its own implementation against its own HKDF -- which proves
+# nothing cross-platform, and a divergence would present as "the code you typed
+# is wrong" with no other symptom.
+#
+# Contract (pinned, both platforms MUST match):
+#   psk = HKDF-SHA256(ikm = secret(16B), salt = EMPTY, info = "wc-psk", 32)
+#
+# `salt = empty` is RFC 5869's "not provided" case: HMAC zero-pads any key
+# shorter than its 64-byte block, so an empty salt and a 32-byte zero salt are
+# the same HMAC key. That equivalence is already exercised by RFC 5869 A.3
+# above, so the three implementations cannot disagree about it silently.
+# ---------------------------------------------------------------------------
+psk_secret = bytes.fromhex("4f1c9a37e0b5d284c6317fa8905e2db3")  # PIN: fixed 16 bytes
+assert len(psk_secret) == 16, "the pairing secret floor is 128 bits"
+
+psk_derived = hkdf_expand(hkdf_extract(b"", psk_secret), b"wc-psk", 32)
+psk_cross = hkdf_full_cryptography(b"", psk_secret, b"wc-psk", 32)
+assert psk_derived == psk_cross, "psk_from_secret: hand-rolled HKDF disagrees with cryptography's HKDF"
+assert len(psk_derived) == 32
+# A different secret must give a different PSK (catches a dropped ikm).
+assert psk_derived != hkdf_expand(hkdf_extract(b"", bytes(16)), b"wc-psk", 32)
+# The info label is load-bearing (catches a dropped/renamed label).
+assert psk_derived != hkdf_expand(hkdf_extract(b"", psk_secret), b"", 32)
+
+psk_from_secret = {
+    "rule": 'psk = HKDF-SHA256(ikm=secret, salt=empty, info="wc-psk", len=32)',
+    "info": "wc-psk",
+    "salt": "",
+    "length": 32,
+    "secret_hex": psk_secret.hex(),
+    "expected_psk_hex": psk_derived.hex(),
+}
+print("[ok] psk_from_secret vector derived and cross-checked")
+
+
+# ---------------------------------------------------------------------------
 # Section 3: GCM record vector
 # nonce = dir(4B) || counter(8B BE); AAD = byte0(0x01) || counter(8B BE)
 # ct_tag = AESGCM ciphertext with the 16B tag appended (Android-native layout)
@@ -497,6 +538,7 @@ print(f"[ok] pairing_code: {len(pairing_vectors)} vectors encoded and round-trip
 out = {
     "hkdf_rfc5869": hkdf_rfc5869,
     "handshake": handshake,
+    "psk_from_secret": psk_from_secret,
     "gcm_record": gcm_record,
     "gcm_record_s2c": gcm_record_s2c,
     "ecdh_leading_zero_x": ecdh_leading_zero_x,

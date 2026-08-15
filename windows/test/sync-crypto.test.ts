@@ -38,6 +38,16 @@ describe('handshake derivation', () => {
     expect(v.handshake.mac_s).not.toBe(v.handshake.mac_c)
   })
 
+  test('pskFromSecret matches the pinned psk_from_secret vector', () => {
+    // Pinned by the shared fixture (independent Python), not by this file, and
+    // asserted identically in the Android suite: `handshake` takes `psk` as an
+    // input, so this was the last derivation step where each platform could
+    // only check its own HKDF against its own HKDF.
+    expect(hex(C.pskFromSecret(H(v.psk_from_secret.secret_hex)))).toBe(
+      v.psk_from_secret.expected_psk_hex
+    )
+  })
+
   test('pskFromSecret is HKDF(secret, "", "wc-psk", 32) and is deterministic', () => {
     const secret = Buffer.alloc(16, 0xab)
     const psk = C.pskFromSecret(secret)
