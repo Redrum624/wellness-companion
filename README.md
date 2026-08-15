@@ -344,8 +344,8 @@ sequenceDiagram
     D-->>P: mDNS: "wellness-companion-sync"
     P->>D: connect
     D->>P: hello { nonce_s }
-    P->>D: hs1 { pub_c, nonce_c }
-    Note over P,D: only ephemeral key material sent so far
+    P->>D: hs1 { pub_c, nonce_c, keyId, deviceId, deviceName }
+    Note over P,D: unauthenticated — includes the phone's device name (a documented residual)
     D->>P: hs2 { pub_s, mac_s }
     P->>D: hs3 { mac_c }
     alt MAC mismatch (unknown or wrong device key)

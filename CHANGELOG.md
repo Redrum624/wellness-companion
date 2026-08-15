@@ -17,12 +17,14 @@ All notable changes to Wellness Companion are documented here.
   handshake is a binary AES-256-GCM record. Affects: `windows/src/main/sync-server.ts`, new
   `windows/src/main/sync-crypto.ts`, `windows/src/main/database.ts`,
   `android/.../sync/SyncManager.kt`, new `android/.../sync/SyncCrypto.kt`.
-- **Single-code device pairing, with per-device management.** Pairing now delivers one
-  33-character code (e.g. `CPR38-KAHBY-4EBBB-QPG9N-B4WFR-HXTY9-NNT`) instead of a typed access
-  password, and the desktop sidebar lists every paired device with a last-seen time and its own
-  **Remove**, so revoking one phone doesn't mean forgetting the rest. "Regenerate" remains a
-  last-resort that forgets every device at once. Affects:
-  `windows/src/renderer/src/components/Sidebar.tsx`, `windows/src/preload/index.ts`,
+- **Single-code device pairing, with per-device management.** Cause: the old code was a shared
+  ~40-bit access password, typed the same way on every device, with no way to revoke just one
+  phone short of changing the password for all of them. Fix: pairing now delivers one 33-character
+  code (e.g. `CPR38-KAHBY-4EBBB-QPG9N-B4WFR-HXTY9-NNT`) that becomes that phone's own 128-bit key,
+  and the desktop sidebar lists every paired device with a last-seen time and its own **Remove**,
+  so revoking one phone doesn't mean forgetting the rest. A "forget every device at once" capability
+  (`regeneratePairingToken`) is wired end-to-end but not yet exposed by any button in the UI.
+  Affects: `windows/src/renderer/src/components/Sidebar.tsx`, `windows/src/preload/index.ts`,
   `windows/src/main/sync-server.ts`, `windows/src/main/database.ts`.
 - **Encrypted local databases, on both platforms, with non-bricking migration.** The desktop
   database (`better-sqlite3-multiple-ciphers`, key wrapped by Electron `safeStorage`/DPAPI in a
