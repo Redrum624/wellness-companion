@@ -26,7 +26,6 @@ let db: Database.Database
 export function initDatabase(): void {
   const userDataDir = app.getPath('userData')
   const dbPath = join(userDataDir, 'wellness.db')
-  const hadExistingDb = existsSync(dbPath)
 
   // at-rest: the DB key must be resolved before the file is touched (§4.1).
   const keyOutcome = loadOrCreateDbKey(userDataDir, safeStorage as unknown as SafeStorageLike)
@@ -39,6 +38,23 @@ export function initDatabase(): void {
     setEncryptionState('unencrypted', keyOutcome.reason)
     console.warn(`Database encryption unavailable this session: ${keyOutcome.reason}`)
   }
+
+  // at-rest: before ANY open — a missing wellness.db with migration leftovers
+  // beside it is an interrupted swap, not a fresh install (§4.4, amended).
+  const recovery = recoverInterruptedSwap(dbPath, key)
+  if (recovery.status === 'unrecoverable') {
+    failClosedOnKeyError(
+      recovery.reason,
+      userDataDir,
+      'Your data has NOT been lost: it is in wellness.db.premigration.tmp (encrypted) or ' +
+        'wellness.db.plaintext.bak (unencrypted) in that folder. Rename the copy you want back ' +
+        'to wellness.db and start the app again, or restore a copy from the backups folder.'
+    )
+    return
+  }
+
+  // Computed AFTER recovery, so a recovered database counts as existing.
+  const hadExistingDb = existsSync(dbPath)
 
   // at-rest: the header decides how to open — a flag in settings would be
   // inside the very file it describes, and desyncs after a manual restore.
@@ -92,14 +108,17 @@ export function initDatabase(): void {
     db.close()
     const result = migrateToEncryptedIfNeeded(dbPath, key)
     if (result.status === 'migrated') {
-      db = openDatabaseHandle(dbPath, key)
+      // at-rest: the reopen is the last step that can throw on its own; without
+      // this guard it would escape into the uncaught app.whenReady() chain and
+      // leave the user with no window and no explanation.
+      if (!reopenOrFailClosed(dbPath, key, userDataDir)) return
       setEncryptionState('encrypted', `migrated ${result.rows ?? 0} entries to an encrypted database`)
       console.log(`Database migrated to encrypted storage (${result.rows ?? 0} entries).`)
     } else {
       // Never brick: the original is untouched, so run on it unencrypted and
       // try again next launch.
       key = null
-      db = openDatabaseHandle(dbPath, null)
+      if (!reopenOrFailClosed(dbPath, null, userDataDir)) return
       setEncryptionState('unencrypted', result.reason ?? 'encryption migration did not run')
       console.error(`Database encryption migration failed, running unencrypted: ${result.reason}`)
     }
@@ -108,6 +127,24 @@ export function initDatabase(): void {
   }
 
   backupOnVersionChange(hadExistingDb, dbPath)
+}
+
+/**
+ * at-rest: reopen after the migration, turning a throw into the same clear
+ * error state as every other key failure. Returns false when it failed closed,
+ * in which case the caller must return immediately.
+ */
+function reopenOrFailClosed(dbPath: string, key: Buffer | null, userDataDir: string): boolean {
+  try {
+    db = openDatabaseHandle(dbPath, key)
+    return true
+  } catch (err) {
+    failClosedOnKeyError(
+      `wellness.db could not be reopened after the encryption migration: ${describe(err)}`,
+      userDataDir
+    )
+    return false
+  }
 }
 
 /** at-rest: open sequence per spec §4.2 (cipher, legacy, key, then WAL). */
@@ -129,18 +166,22 @@ function openDatabaseHandle(dbPath: string, key: Buffer | null): Database.Databa
  * create a fresh db, re-mint a key) writes over data that is still perfectly
  * recoverable once the key or the Windows profile is restored.
  */
-function failClosedOnKeyError(reason: string, userDataDir: string): void {
+const KEY_ERROR_GUIDANCE =
+  'Your data has NOT been changed. wellness.key can only be unwrapped by the same Windows ' +
+  'user account that created it. Restore that account (or a matching wellness.key backup) ' +
+  'and start the app again, or restore a copy from the backups folder.'
+
+function failClosedOnKeyError(
+  reason: string,
+  userDataDir: string,
+  guidance: string = KEY_ERROR_GUIDANCE
+): void {
   setEncryptionState('error', reason)
-  console.error(`Database key error, refusing to open wellness.db: ${reason}`)
+  console.error(`Database error, refusing to open wellness.db: ${reason}`)
   try {
     dialog.showErrorBox(
       'Wellness Companion — database key error',
-      `${reason}\n\n` +
-        'Your data has NOT been changed. The encrypted database and its key live in:\n' +
-        `${userDataDir}\n\n` +
-        'wellness.key can only be unwrapped by the same Windows user account that created it. ' +
-        'Restore that account (or a matching wellness.key backup) and start the app again, or ' +
-        'restore a copy from the backups folder.'
+      `${reason}\n\nThe database and its key live in:\n${userDataDir}\n\n${guidance}`
     )
   } catch (err) {
     console.error('Could not show the key-error dialog:', err)
@@ -274,6 +315,19 @@ export function loadOrCreateDbKey(userDataDir: string, ss: SafeStorageLike): DbK
     }
   }
 
+  // at-rest: never mint a key next to a database that is ALREADY ciphertext.
+  // The minted key cannot open it, and persisting it would make the next launch
+  // read it back as an established key (created:false), slipping past the
+  // "freshly minted" guard in initDatabase and leaving nothing but SQLite's
+  // refusal to decrypt between the user and a confusing failure.
+  const dbPath = join(userDataDir, 'wellness.db')
+  if (existsSync(dbPath) && fileSize(dbPath) > 0 && !isPlaintextSqliteFile(dbPath)) {
+    return {
+      status: 'error',
+      reason: 'wellness.db is encrypted but wellness.key is missing, so it cannot be unlocked'
+    }
+  }
+
   if (!ss.isEncryptionAvailable()) {
     return {
       status: 'unavailable',
@@ -338,6 +392,8 @@ export interface CipherDbHandle {
   close(): void
 }
 export type CipherDbOpener = (path: string) => CipherDbHandle
+/** Seam for the swap renames, so the restore-on-failure branch is testable. */
+export type RenameFn = (from: string, to: string) => void
 
 const openCipherDb: CipherDbOpener = (path: string) =>
   new Database(path) as unknown as CipherDbHandle
@@ -372,7 +428,8 @@ function removeIfPresent(path: string): void {
 export function migrateToEncryptedIfNeeded(
   dbPath: string,
   key: Buffer,
-  open: CipherDbOpener = openCipherDb
+  open: CipherDbOpener = openCipherDb,
+  rename: RenameFn = renameSync
 ): MigrationResult {
   if (!isPlaintextSqliteFile(dbPath)) return { status: 'not_needed' }
 
@@ -440,13 +497,18 @@ export function migrateToEncryptedIfNeeded(
     }
 
     removeIfPresent(bakPath) // keep exactly one plaintext cycle
-    renameSync(dbPath, bakPath)
+    // The two renames below are the one window in which wellness.db does not
+    // exist. Nothing is lost if the process dies here — the data is in the
+    // .premigration.tmp and the .plaintext.bak — but the next launch must not
+    // mistake the gap for a fresh install, which is what
+    // recoverInterruptedSwap() is for.
+    rename(dbPath, bakPath)
     try {
-      renameSync(tmpPath, dbPath)
+      rename(tmpPath, dbPath)
     } catch (err) {
       // Put the original back rather than leave the app with no database.
       try {
-        renameSync(bakPath, dbPath)
+        rename(bakPath, dbPath)
       } catch (restoreErr) {
         console.error('Restoring wellness.db after a failed swap failed:', restoreErr)
       }
@@ -460,8 +522,93 @@ export function migrateToEncryptedIfNeeded(
 
     return { status: 'migrated', rows }
   } catch (err) {
-    cleanupTmp()
+    // Only discard the working copy while the live database is still there. If
+    // the swap failed AND the restore failed, the tmp can be the only encrypted
+    // copy left; recoverInterruptedSwap() needs it on the next launch.
+    if (existsSync(dbPath)) cleanupTmp()
     return { status: 'failed', reason: describe(err) }
+  }
+}
+
+export type SwapRecovery =
+  | { status: 'not_needed' }
+  | { status: 'recovered'; from: 'premigration' | 'plaintext_backup'; rows?: number }
+  | { status: 'unrecoverable'; reason: string }
+
+/**
+ * at-rest: recover from a migration swap that was interrupted (§4.4, amended).
+ *
+ * Between the two renames wellness.db does not exist. A process death there —
+ * or a failed swap whose restore also failed — leaves the data in
+ * wellness.db.premigration.tmp (encrypted) and/or wellness.db.plaintext.bak
+ * (plaintext), with no wellness.db at all. Without this check the next launch
+ * would read that as a fresh install and cheerfully create an empty encrypted
+ * database, stamp the version marker and show the user zero entries.
+ *
+ * Runs BEFORE the database is opened. Prefers the .premigration.tmp when it
+ * actually opens under the key (it is the newer, already-verified copy), falls
+ * back to restoring the .plaintext.bak, and reports `unrecoverable` when a
+ * survivor exists but neither route works — the caller then fails closed with
+ * a real message instead of starting empty.
+ */
+export function recoverInterruptedSwap(
+  dbPath: string,
+  key: Buffer | null,
+  open: CipherDbOpener = openCipherDb,
+  rename: RenameFn = renameSync
+): SwapRecovery {
+  if (existsSync(dbPath)) return { status: 'not_needed' }
+
+  const tmpPath = `${dbPath}.premigration.tmp`
+  const bakPath = `${dbPath}.plaintext.bak`
+  const hasTmp = existsSync(tmpPath) && fileSize(tmpPath) > 0
+  const hasBak = existsSync(bakPath) && fileSize(bakPath) > 0
+  if (!hasTmp && !hasBak) return { status: 'not_needed' } // a genuine first run
+
+  const failures: string[] = []
+
+  if (hasTmp && key) {
+    try {
+      const handle = open(tmpPath)
+      let rows: number
+      try {
+        handle.pragma("cipher='sqlcipher'")
+        handle.pragma('legacy=4')
+        handle.key(key)
+        const row = handle.prepare('SELECT count(*) FROM entries').get() as Record<string, unknown>
+        rows = Number(Object.values(row ?? {})[0])
+        if (!Number.isFinite(rows)) throw new Error('recovery read returned no row count')
+      } finally {
+        try {
+          handle.close()
+        } catch (err) {
+          console.error('Closing the recovery handle failed:', err)
+        }
+      }
+      rename(tmpPath, dbPath)
+      console.log(`Recovered an interrupted migration from the encrypted copy (${rows} entries).`)
+      return { status: 'recovered', from: 'premigration', rows }
+    } catch (err) {
+      // Fall through to the plaintext backup: the tmp stays on disk untouched.
+      failures.push(`premigration copy: ${describe(err)}`)
+    }
+  } else if (hasTmp) {
+    failures.push('premigration copy: no database key is available to verify it')
+  }
+
+  if (hasBak) {
+    try {
+      rename(bakPath, dbPath)
+      console.log('Recovered an interrupted migration by restoring the plaintext backup.')
+      return { status: 'recovered', from: 'plaintext_backup' }
+    } catch (err) {
+      failures.push(`plaintext backup: ${describe(err)}`)
+    }
+  }
+
+  return {
+    status: 'unrecoverable',
+    reason: `wellness.db is missing after an interrupted migration and could not be recovered (${failures.join('; ')})`
   }
 }
 

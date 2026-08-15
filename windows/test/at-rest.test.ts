@@ -42,9 +42,9 @@ jest.mock('better-sqlite3-multiple-ciphers', () => ({
 }))
 
 import { createHash } from 'crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { basename, join } from 'path'
 
 import * as DB from '../src/main/database'
 
@@ -269,6 +269,28 @@ describe('loadOrCreateDbKey (spec §4.1)', () => {
     }
     expect(DB.loadOrCreateDbKey(dir, short).status).toBe('error')
   })
+
+  test('NO key is minted beside an already-encrypted database (finding 3)', () => {
+    // wellness.key was lost but wellness.db is ciphertext. Minting would persist
+    // a key that cannot open it, and the next launch would read that key back as
+    // an established one — slipping past the "freshly minted" guard.
+    const dbPath = join(dir, 'wellness.db')
+    writeCipherDb(dbPath, 831, 'bb'.repeat(32))
+    const before = readFileSync(dbPath)
+
+    const outcome = DB.loadOrCreateDbKey(dir, workingSafeStorage())
+
+    expect(outcome.status).toBe('error')
+    expect(existsSync(join(dir, 'wellness.key'))).toBe(false)
+    expect(existsSync(join(dir, 'wellness.key.tmp'))).toBe(false)
+    expect(readFileSync(dbPath).equals(before)).toBe(true)
+  })
+
+  test('a key IS minted beside a plaintext database (migration must still run)', () => {
+    writePlainDb(join(dir, 'wellness.db'), 5)
+    expect(DB.loadOrCreateDbKey(dir, workingSafeStorage()).status).toBe('ready')
+    expect(existsSync(join(dir, 'wellness.key'))).toBe(true)
+  })
 })
 
 // ── §4.4 header detection ───────────────────────────────────────────────────
@@ -375,6 +397,65 @@ describe('migrateToEncryptedIfNeeded (spec §4.4)', () => {
     })
   }
 
+  test('a failed SWAP renames the original back, intact and readable (finding 2)', () => {
+    const dbPath = join(dir, 'wellness.db')
+    const tmpPath = join(dir, 'wellness.db.premigration.tmp')
+    const bakPath = join(dir, 'wellness.db.plaintext.bak')
+    writePlainDb(dbPath, 77)
+    const original = readFileSync(dbPath)
+
+    // Only the tmp -> live rename fails; the live -> bak rename and the restore
+    // both run for real, so the test actually enters the post-rename world.
+    const attempted: string[] = []
+    const rename: DB.RenameFn = (from, to) => {
+      attempted.push(`${basename(from)} -> ${basename(to)}`)
+      if (from === tmpPath && to === dbPath) throw new Error('simulated swap failure')
+      renameSync(from, to)
+    }
+
+    const { open } = fakeOpener()
+    const result = DB.migrateToEncryptedIfNeeded(dbPath, key, open, rename)
+
+    expect(result.status).toBe('failed')
+    expect(attempted).toEqual([
+      'wellness.db -> wellness.db.plaintext.bak',
+      'wellness.db.premigration.tmp -> wellness.db',
+      'wellness.db.plaintext.bak -> wellness.db'
+    ])
+
+    // The original is back where it belongs, byte-identical and still readable.
+    expect(existsSync(dbPath)).toBe(true)
+    expect(readFileSync(dbPath).equals(original)).toBe(true)
+    expect(DB.isPlaintextSqliteFile(dbPath)).toBe(true)
+    expect(readFake(dbPath).rows).toBe(77)
+
+    // No leftovers: neither the working copy nor a half-cycle backup.
+    expect(existsSync(tmpPath)).toBe(false)
+    expect(existsSync(bakPath)).toBe(false)
+  })
+
+  test('a swap that fails AND cannot restore keeps the tmp for recovery (finding 1)', () => {
+    const dbPath = join(dir, 'wellness.db')
+    const tmpPath = join(dir, 'wellness.db.premigration.tmp')
+    const bakPath = join(dir, 'wellness.db.plaintext.bak')
+    writePlainDb(dbPath, 9)
+
+    const rename: DB.RenameFn = (from, to) => {
+      if (from === tmpPath && to === dbPath) throw new Error('simulated swap failure')
+      if (from === bakPath && to === dbPath) throw new Error('simulated restore failure')
+      renameSync(from, to)
+    }
+
+    const { open } = fakeOpener()
+    expect(DB.migrateToEncryptedIfNeeded(dbPath, key, open, rename).status).toBe('failed')
+
+    // wellness.db is gone, so the encrypted working copy must NOT be deleted —
+    // it is what recoverInterruptedSwap() picks up on the next launch.
+    expect(existsSync(dbPath)).toBe(false)
+    expect(existsSync(tmpPath)).toBe(true)
+    expect(existsSync(bakPath)).toBe(true)
+  })
+
   test('a stale .premigration.tmp from a killed run is replaced, not appended to', () => {
     const dbPath = join(dir, 'wellness.db')
     const tmpPath = join(dir, 'wellness.db.premigration.tmp')
@@ -385,6 +466,98 @@ describe('migrateToEncryptedIfNeeded (spec §4.4)', () => {
     expect(DB.migrateToEncryptedIfNeeded(dbPath, key, open).status).toBe('migrated')
     expect(existsSync(tmpPath)).toBe(false)
     expect(readFake(dbPath).rows).toBe(5)
+  })
+})
+
+// ── §4.4 interrupted-swap recovery (finding 1) ──────────────────────────────
+describe('recoverInterruptedSwap (spec §4.4 amended)', () => {
+  const key = Buffer.alloc(32, 7)
+  const dbPathOf = (): string => join(dir, 'wellness.db')
+
+  test('an ordinary launch with wellness.db present does nothing', () => {
+    writePlainDb(dbPathOf(), 3)
+    const { open, opened } = fakeOpener()
+    expect(DB.recoverInterruptedSwap(dbPathOf(), key, open).status).toBe('not_needed')
+    expect(opened).toHaveLength(0)
+  })
+
+  test('a genuine fresh install (nothing on disk) is not mistaken for a crash', () => {
+    const { open } = fakeOpener()
+    expect(DB.recoverInterruptedSwap(dbPathOf(), key, open).status).toBe('not_needed')
+    expect(existsSync(dbPathOf())).toBe(false)
+  })
+
+  test('prefers the encrypted .premigration.tmp when it opens under the key', () => {
+    // The process died between the two renames: no wellness.db, both survivors.
+    const tmpPath = `${dbPathOf()}.premigration.tmp`
+    const bakPath = `${dbPathOf()}.plaintext.bak`
+    writeCipherDb(tmpPath, 831, key.toString('hex'))
+    writePlainDb(bakPath, 831)
+
+    const { open } = fakeOpener()
+    const result = DB.recoverInterruptedSwap(dbPathOf(), key, open)
+
+    expect(result).toMatchObject({ status: 'recovered', from: 'premigration', rows: 831 })
+    expect(existsSync(dbPathOf())).toBe(true)
+    expect(DB.isPlaintextSqliteFile(dbPathOf())).toBe(false)
+    expect(readFake(dbPathOf())).toEqual({ rows: 831, keyHex: key.toString('hex') })
+    expect(existsSync(tmpPath)).toBe(false)
+    // The plaintext cycle is left exactly where it was.
+    expect(existsSync(bakPath)).toBe(true)
+  })
+
+  test('falls back to the .plaintext.bak when the tmp cannot be read', () => {
+    const tmpPath = `${dbPathOf()}.premigration.tmp`
+    const bakPath = `${dbPathOf()}.plaintext.bak`
+    // A tmp encrypted under a DIFFERENT key: verification must fail.
+    writeCipherDb(tmpPath, 12, 'cc'.repeat(32))
+    writePlainDb(bakPath, 831)
+
+    const result = DB.recoverInterruptedSwap(dbPathOf(), key, fakeOpener().open)
+
+    expect(result).toMatchObject({ status: 'recovered', from: 'plaintext_backup' })
+    expect(DB.isPlaintextSqliteFile(dbPathOf())).toBe(true)
+    expect(readFake(dbPathOf()).rows).toBe(831)
+    // The unreadable tmp is left alone rather than deleted.
+    expect(existsSync(tmpPath)).toBe(true)
+  })
+
+  test('restores the .plaintext.bak when there is no tmp at all', () => {
+    writePlainDb(`${dbPathOf()}.plaintext.bak`, 44)
+    expect(DB.recoverInterruptedSwap(dbPathOf(), key, fakeOpener().open)).toMatchObject({
+      status: 'recovered',
+      from: 'plaintext_backup'
+    })
+    expect(readFake(dbPathOf()).rows).toBe(44)
+  })
+
+  test('an unreadable tmp with NO backup is unrecoverable — never a fresh start', () => {
+    const tmpPath = `${dbPathOf()}.premigration.tmp`
+    writeCipherDb(tmpPath, 5, 'dd'.repeat(32))
+
+    const result = DB.recoverInterruptedSwap(dbPathOf(), key, fakeOpener().open)
+
+    expect(result.status).toBe('unrecoverable')
+    // The caller fails closed on this; nothing was created or destroyed.
+    expect(existsSync(dbPathOf())).toBe(false)
+    expect(existsSync(tmpPath)).toBe(true)
+  })
+
+  test('a tmp with no key available is unrecoverable rather than silently empty', () => {
+    writeCipherDb(`${dbPathOf()}.premigration.tmp`, 5, key.toString('hex'))
+    const result = DB.recoverInterruptedSwap(dbPathOf(), null, fakeOpener().open)
+    expect(result.status).toBe('unrecoverable')
+    expect(existsSync(dbPathOf())).toBe(false)
+  })
+
+  test('reports unrecoverable when even the restore rename fails', () => {
+    writePlainDb(`${dbPathOf()}.plaintext.bak`, 44)
+    const rename: DB.RenameFn = () => {
+      throw new Error('simulated rename failure')
+    }
+    const result = DB.recoverInterruptedSwap(dbPathOf(), key, fakeOpener().open, rename)
+    expect(result.status).toBe('unrecoverable')
+    expect(existsSync(dbPathOf())).toBe(false)
   })
 })
 
