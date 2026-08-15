@@ -6,6 +6,17 @@ import java.io.File
 import java.io.RandomAccessFile
 
 /**
+ * Seam for a real keyed row-count read, injectable so JVM unit tests (no
+ * native SQLCipher library on that classpath) can exercise the swap and
+ * recovery logic without it. Mirrors the desktop's `CipherDbOpener`
+ * (`database.ts:554-558`).
+ */
+internal typealias VerifyFn = (file: File, passphrase: ByteArray) -> Int
+
+/** Seam for the swap/restore renames. Mirrors the desktop's `RenameFn` (`database.ts:558`). */
+internal typealias RenameFn = (from: File, to: File) -> Boolean
+
+/**
  * at-rest: plaintext -> encrypted Room DB migration via `sqlcipher_export()`
  * (spec §5.3). Never mutates the live `wellness.db` before a real keyed read on
  * the encrypted copy has succeeded; any failure leaves the original exactly as
@@ -29,6 +40,7 @@ object DbEncryptionMigrator {
     private const val TAG = "DbEncryptionMigrator"
     private const val TMP_SUFFIX = ".encrypting.tmp"
     private const val BAK_SUFFIX = ".plaintext.bak"
+    private const val KEYLOST_SUFFIX = ".keylost.bak"
     private val PLAINTEXT_MAGIC = byteArrayOf(
         'S'.code.toByte(), 'Q'.code.toByte(), 'L'.code.toByte(), 'i'.code.toByte(),
         't'.code.toByte(), 'e'.code.toByte(), ' '.code.toByte(), 'f'.code.toByte(),
@@ -79,7 +91,19 @@ object DbEncryptionMigrator {
     sealed class MigrationResult {
         object NotNeeded : MigrationResult()
         data class Migrated(val rows: Int) : MigrationResult()
+        /** Original plaintext still on disk (or restored); safe to open unencrypted this session. */
         data class Failed(val reason: String) : MigrationResult()
+        /**
+         * Post-review fix (C1): the swap failed AND the restore-back also
+         * failed, so `dbFile` does not exist even though the migration was
+         * otherwise successful (a verified encrypted copy exists at the tmp
+         * path, the original at the backup path). This is deliberately NOT
+         * `Failed` -- `AppModule` used to treat every `Failed` as "plaintext
+         * still on disk, open unencrypted," which let Room silently create a
+         * brand-new EMPTY database over two intact survivors. Callers MUST
+         * fail closed on this result, never open Room.
+         */
+        data class DatabaseMissing(val reason: String) : MigrationResult()
     }
 
     sealed class RecoveryResult {
@@ -104,6 +128,7 @@ object DbEncryptionMigrator {
 
     private fun tmpFile(dbFile: File) = File(dbFile.parentFile, dbFile.name + TMP_SUFFIX)
     private fun bakFile(dbFile: File) = File(dbFile.parentFile, dbFile.name + BAK_SUFFIX)
+    private fun keylostFile(dbFile: File) = File(dbFile.parentFile, dbFile.name + KEYLOST_SUFFIX)
 
     private fun removeIfPresent(file: File) {
         try {
@@ -129,6 +154,9 @@ object DbEncryptionMigrator {
         removeIfPresent(File(dbFile.path + "-journal"))
     }
 
+    private val defaultVerify: VerifyFn = ::verifyEncryptedReadable
+    private val defaultRename: RenameFn = { from, to -> from.renameTo(to) }
+
     /**
      * Recovers from a swap interrupted mid-rename. MUST run before Room (or
      * anything else) opens `dbFile`. Between the two renames in
@@ -136,7 +164,12 @@ object DbEncryptionMigrator {
      * would otherwise read as a fresh install and let Room create an empty
      * database over data that is still intact in the tmp/backup copy.
      */
-    fun recoverInterruptedSwap(dbFile: File, passphrase: ByteArray): RecoveryResult {
+    fun recoverInterruptedSwap(
+        dbFile: File,
+        passphrase: ByteArray,
+        verify: VerifyFn = defaultVerify,
+        rename: RenameFn = defaultRename
+    ): RecoveryResult {
         if (dbFile.exists()) return RecoveryResult.NotNeeded
 
         val tmp = tmpFile(dbFile)
@@ -149,9 +182,8 @@ object DbEncryptionMigrator {
 
         if (hasTmp) {
             try {
-                ensureNativeLibraryLoaded()
-                val rows = verifyEncryptedReadable(tmp, passphrase)
-                if (tmp.renameTo(dbFile)) {
+                val rows = verify(tmp, passphrase)
+                if (rename(tmp, dbFile)) {
                     Log.i(TAG, "Recovered an interrupted migration from the encrypted copy ($rows entries).")
                     return RecoveryResult.Recovered("premigration copy, $rows entries")
                 }
@@ -163,7 +195,7 @@ object DbEncryptionMigrator {
         }
 
         if (hasBak) {
-            if (bak.renameTo(dbFile)) {
+            if (rename(bak, dbFile)) {
                 Log.i(TAG, "Recovered an interrupted migration by restoring the plaintext backup.")
                 return RecoveryResult.Recovered("plaintext backup")
             }
@@ -172,7 +204,53 @@ object DbEncryptionMigrator {
 
         return RecoveryResult.Unrecoverable(
             "wellness.db is missing after an interrupted migration and could not be recovered " +
-                "(${failures.joinToString("; ")})"
+                "(${failures.joinToString("; ")}). Your data is safe -- check for " +
+                "${bak.name} and ${tmp.name} in the app's data directory."
+        )
+    }
+
+    /**
+     * Recovery for a DB encryption key that can no longer be unwrapped (a
+     * corrupt blob, or the AndroidKeyStore alias is gone) when a
+     * pre-encryption `wellness.db.plaintext.bak` still exists (I2, spec §6
+     * residual). The now-undecryptable `wellness.db` is preserved (renamed
+     * aside to `wellness.db.keylost.bak`, never deleted) and the plaintext
+     * backup takes `wellness.db`'s place, so a freshly minted passphrase
+     * (`DbKeyManager.mintFreshPassphrase`) and [migrateIfNeeded] can
+     * re-encrypt it on this same launch -- instead of the app refusing to
+     * start on every subsequent launch with no way for the user to recover.
+     */
+    fun recoverFromLostKey(dbFile: File, rename: RenameFn = defaultRename): RecoveryResult {
+        val bak = bakFile(dbFile)
+        if (!bak.exists() || bak.length() <= 0) {
+            return RecoveryResult.Unrecoverable(
+                "the database encryption key could not be unwrapped and no ${bak.name} backup " +
+                    "exists to recover from"
+            )
+        }
+
+        val keylost = keylostFile(dbFile)
+        if (dbFile.exists()) {
+            removeIfPresent(keylost) // clear an earlier keylost attempt before reusing the name
+            if (!rename(dbFile, keylost)) {
+                return RecoveryResult.Unrecoverable(
+                    "the database encryption key could not be unwrapped and the unreadable " +
+                        "${dbFile.name} could not be preserved aside to recover from ${bak.name}"
+                )
+            }
+        }
+
+        if (!rename(bak, dbFile)) {
+            // Try to put the unreadable original back rather than leave no db at all.
+            rename(keylost, dbFile)
+            return RecoveryResult.Unrecoverable(
+                "the database encryption key could not be unwrapped and ${bak.name} could not be restored"
+            )
+        }
+
+        return RecoveryResult.Recovered(
+            "restored ${bak.name} after the encryption key became unusable; the unreadable prior " +
+                "database is preserved at ${keylost.name}"
         )
     }
 
@@ -182,9 +260,15 @@ object DbEncryptionMigrator {
      * against a brand-new `<dbName>.encrypting.tmp`; `dbFile` itself is only
      * opened read/write to serve as the `sqlcipher_export` SOURCE (writes land
      * on the attached tmp, never on `main`), so its bytes never change until the
-     * verified swap. Any failure deletes the tmp and leaves `dbFile` untouched.
+     * verified swap. Any failure deletes the tmp and leaves `dbFile` untouched
+     * (except the [MigrationResult.DatabaseMissing] case -- see its doc).
      */
-    fun migrateIfNeeded(dbFile: File, passphrase: ByteArray): MigrationResult {
+    fun migrateIfNeeded(
+        dbFile: File,
+        passphrase: ByteArray,
+        verify: VerifyFn = defaultVerify,
+        rename: RenameFn = defaultRename
+    ): MigrationResult {
         if (!isPlaintextSqliteFile(dbFile)) return MigrationResult.NotNeeded
 
         ensureNativeLibraryLoaded()
@@ -233,30 +317,51 @@ object DbEncryptionMigrator {
         // would swap in a file we have never actually decrypted.
         val rows: Int
         try {
-            rows = verifyEncryptedReadable(tmp, passphrase)
+            rows = verify(tmp, passphrase)
         } catch (e: Exception) {
             cleanupTmp(dbFile)
             return MigrationResult.Failed("verification read failed: ${e.message}")
         }
 
-        removeIfPresent(bak) // keep exactly one plaintext cycle
+        return performSwap(dbFile, tmp, bak, rows, rename)
+    }
+
+    /**
+     * The swap itself, extracted from [migrateIfNeeded] so the failure
+     * branches (C1) are directly unit-testable on the JVM: no native library
+     * needed, only `File` renames. Called only after [tmp] has already been
+     * verified as a real, keyed-readable database holding [rows] rows.
+     *
+     * Post-review fix (C1): `bak` is never pre-deleted here -- `File.renameTo`
+     * on Android/Linux replaces the destination atomically (POSIX `rename()`),
+     * so deleting first only widens a window for no benefit, and it violated
+     * the task's explicit never-delete-a-`.plaintext.bak` constraint (I1).
+     */
+    internal fun performSwap(
+        dbFile: File,
+        tmp: File,
+        bak: File,
+        rows: Int,
+        rename: RenameFn = defaultRename
+    ): MigrationResult {
         // The two renames below are the one window in which dbFile does not
         // exist. Nothing is lost if the process dies here -- the data is in the
         // tmp and the .plaintext.bak -- but the next launch must not mistake the
         // gap for a fresh install, which is what recoverInterruptedSwap() is for.
-        if (!dbFile.renameTo(bak)) {
+        if (!rename(dbFile, bak)) {
             cleanupTmp(dbFile)
             return MigrationResult.Failed("could not rename the original database aside")
         }
-        if (!tmp.renameTo(dbFile)) {
+        if (!rename(tmp, dbFile)) {
             // Put the original back rather than leave the app with no database.
-            if (!bak.renameTo(dbFile)) {
-                // Truly stuck: leave both survivors on disk for
-                // recoverInterruptedSwap() on the next launch instead of
-                // deleting anything.
-                return MigrationResult.Failed(
-                    "swap failed and the original could not be restored -- data is safe in " +
-                        "${bak.name} / ${tmp.name}, will recover on next launch"
+            if (!rename(bak, dbFile)) {
+                // Truly stuck: dbFile does not exist. Never delete either
+                // survivor here (I1) -- recoverInterruptedSwap() on the next
+                // launch recovers from exactly this state (C1).
+                return MigrationResult.DatabaseMissing(
+                    "wellness.db is missing after a failed migration swap; the verified encrypted " +
+                        "copy is at ${tmp.name} and the original plaintext is at ${bak.name} -- both " +
+                        "are intact and will be recovered automatically on the next launch"
                 )
             }
             cleanupTmp(dbFile)
@@ -271,6 +376,7 @@ object DbEncryptionMigrator {
     }
 
     private fun verifyEncryptedReadable(file: File, passphrase: ByteArray): Int {
+        ensureNativeLibraryLoaded()
         // Same raw-key literal encoding used everywhere else (rawKeyBytes doc) --
         // this is the exact byte[] Room's SupportOpenHelperFactory is given too,
         // so a successful open here is real evidence Room will open it as well.

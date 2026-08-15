@@ -1,6 +1,7 @@
 package com.wellnesscompanion.app.security
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -44,6 +45,10 @@ object DbKeyManager {
     /**
      * Returns the 32-byte DB passphrase, minting and persisting a wrapped one on
      * first run. Every subsequent call on this device returns the same bytes.
+     * Throws if an existing wrapped blob can no longer be unwrapped (corrupt
+     * blob, lost Keystore alias) -- callers must not treat that as "mint a new
+     * one" (see [existingWrappingKey]); `AppModule` handles that recovery via
+     * `DbEncryptionMigrator.recoverFromLostKey` + [mintFreshPassphrase].
      */
     fun getOrCreatePassphrase(context: Context): ByteArray {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -51,7 +56,22 @@ object DbKeyManager {
         if (existingBlob != null) {
             return unwrap(existingBlob)
         }
+        return mintAndPersist(prefs, "Minted a new database passphrase (Keystore-wrapped).")
+    }
 
+    /**
+     * Mints and persists a brand-new passphrase unconditionally, overwriting
+     * any existing (unusable) wrapped blob. Only for the lost-key recovery
+     * path in `AppModule` -- [getOrCreatePassphrase] must never silently do
+     * this on its own, which would risk stranding data still under the old key
+     * before a caller gets a chance to recover it via a `.plaintext.bak`.
+     */
+    fun mintFreshPassphrase(context: Context): ByteArray {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return mintAndPersist(prefs, "Minted a fresh database passphrase after the previous key became unusable.")
+    }
+
+    private fun mintAndPersist(prefs: SharedPreferences, logMessage: String): ByteArray {
         val passphrase = ByteArray(PASSPHRASE_BYTES).also { SecureRandom().nextBytes(it) }
         val blob = wrap(passphrase)
         // commit() is synchronous: a process death right after this call can never
@@ -59,11 +79,12 @@ object DbKeyManager {
         // otherwise re-mint a DIFFERENT key next launch against an already-keyed db.
         val saved = prefs.edit().putString(PREF_KEY_BLOB, blob).commit()
         check(saved) { "could not persist the wrapped database passphrase" }
-        Log.i(TAG, "Minted a new database passphrase (Keystore-wrapped).")
+        Log.i(TAG, logMessage)
         return passphrase
     }
 
-    private fun wrappingKey(): SecretKey {
+    /** Mints the wrap key on first use -- fine for [wrap]: a fresh mint there just means a fresh passphrase gets a fresh wrap. */
+    private fun getOrCreateWrappingKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (keyStore.getKey(KEYSTORE_ALIAS, null) as? SecretKey)?.let { return it }
 
@@ -81,9 +102,23 @@ object DbKeyManager {
         return generator.generateKey()
     }
 
+    /**
+     * The wrap key for [unwrap] ONLY -- must never mint (M1, post-review fix).
+     * Minting here would silently swap in a NEW alias key that cannot decrypt
+     * a blob wrapped under the OLD (now-missing) key, and unwrap would then
+     * fail with a confusing GCM "bad tag" instead of surfacing the real
+     * problem -- the alias itself is gone -- to the caller that decides
+     * whether the lost-key recovery path applies.
+     */
+    private fun existingWrappingKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        return keyStore.getKey(KEYSTORE_ALIAS, null) as? SecretKey
+            ?: throw IllegalStateException("the AndroidKeyStore wrapping key '$KEYSTORE_ALIAS' no longer exists")
+    }
+
     private fun wrap(passphrase: ByteArray): String {
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, wrappingKey())
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateWrappingKey())
         val iv = cipher.iv
         check(iv.size == GCM_IV_BYTES) { "unexpected GCM IV length from AndroidKeyStore" }
         val wrapped = cipher.doFinal(passphrase)
@@ -96,7 +131,7 @@ object DbKeyManager {
         val iv = bytes.copyOfRange(0, GCM_IV_BYTES)
         val wrapped = bytes.copyOfRange(GCM_IV_BYTES, bytes.size)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
+        cipher.init(Cipher.DECRYPT_MODE, existingWrappingKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
         val passphrase = cipher.doFinal(wrapped)
         check(passphrase.size == PASSPHRASE_BYTES) {
             "unwrapped database passphrase had unexpected length ${passphrase.size}"
