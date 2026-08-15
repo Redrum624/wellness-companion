@@ -51,7 +51,16 @@ object AppModule {
                 lastError = e
                 if (attempt < backoffMs.size) {
                     Log.w(TAG, "Passphrase unwrap failed (attempt ${attempt + 1}), retrying: ${e.message}")
-                    Thread.sleep(backoffMs[attempt])
+                    try {
+                        Thread.sleep(backoffMs[attempt])
+                    } catch (interrupted: InterruptedException) {
+                        // Restore the interrupt flag rather than swallow it, but don't let
+                        // InterruptedException itself propagate: that would skip lastError
+                        // and drop the real unwrap error from the log while still being
+                        // treated as permanent key loss by the caller.
+                        Thread.currentThread().interrupt()
+                        throw lastError!!
+                    }
                 }
             }
         }

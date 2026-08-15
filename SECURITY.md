@@ -67,11 +67,15 @@ sensitive data.
   one-time migration keeps `wellness.db.plaintext.bak` — your entire pre-migration history, in
   plaintext — right beside the now-encrypted database, on both platforms:
   `%APPDATA%\wellness-companion\wellness.db.plaintext.bak` on the PC, and the app's private
-  database directory on the phone (alongside `wellness.db`, reachable via `adb pull` or `run-as` on
-  a debug build). Nothing prunes it automatically on either platform — it exists so a failed
-  migration can never lose data, not as a temporary artifact — so it sits there in plaintext
-  indefinitely unless you remove it yourself. Once you've confirmed your data made it across the
-  upgrade intact, delete that file.
+  database directory on the phone (alongside `wellness.db`, reachable via `run-as` on a
+  debug-signed build — the private `databases/` directory is not `adb pull`-able without root).
+  Nothing prunes it automatically on either platform — it exists so a failed migration can never
+  lose data, not as a temporary artifact — so it sits there in plaintext indefinitely unless you
+  remove it yourself. Once you've confirmed your data made it across the upgrade intact, delete
+  that file — but understand first that it doubles as the automatic recovery source if the
+  encryption key is ever lost: on Android it is the *only* rollback path (with no
+  `.plaintext.bak` present, a lost key leaves the app unable to start at all), and on desktop it is
+  one of the two files the key-loss dialog names when `wellness.db` itself is missing.
 - **What this does NOT defend: malware or a shell running as you.** At-rest encryption does not
   protect against code running as your own Windows account (DPAPI unwraps for that account by
   design) or as the app's own UID on Android — including `run-as` access on a **debug-signed**
@@ -86,17 +90,25 @@ sensitive data.
   If the wrapped key ever becomes unusable (a corrupted DPAPI profile, a `wellness.key` copied to
   another machine, an AndroidKeyStore key invalidated by the OS):
   - **Desktop** fails closed with an on-screen dialog rather than silently starting from an empty
-    database, naming the file that still holds your data — `wellness.db.premigration.tmp` or
-    `wellness.db.plaintext.bak`.
+    database. What it names depends on which failure occurred: when `wellness.db` itself is
+    missing (an interrupted migration swap with no recoverable copy in place), the dialog names
+    both survivor files — `wellness.db.premigration.tmp` and `wellness.db.plaintext.bak`. A
+    key-only failure — `wellness.db` is still present, but the key cannot be unwrapped — names the
+    userData folder, `wellness.key`, and the backups folder instead; those two survivor files are
+    not part of that dialog.
   - **Android** does not show an in-app message at all. If no pre-migration backup survives, the
     key failure is raised inside a Hilt provider (`error(...)` in `AppModule.kt`), which crashes
     the process — you see the OS's generic "Wellness Companion keeps stopping" dialog, and the
     file names that would explain what happened are only in `adb logcat`, not on screen. If a
     `wellness.db.plaintext.bak` from the original migration *does* still survive, Android does
     **not** fail closed at all: it silently rolls back to that pre-migration snapshot, mints a
-    fresh key, and re-encrypts under it — so the app keeps running, but any entries written after
-    the original migration and before the key loss are gone without a warning. An in-app error
-    screen, and a warning before that silent rollback, are known follow-ups.
+    fresh key, and re-encrypts under it — so the app keeps running. Entries written after the
+    original migration and before the key loss are not deleted: the unreadable `wellness.db` is
+    preserved under a `wellness.db.keylost*.bak` name, and the previous wrapped key blob is
+    retained rather than reused (`DbKeyManager`'s `PREF_KEY_BLOB_PREVIOUS`), so recovery is
+    possible in principle — but there is no tooling or in-app flow to perform it yet, and no
+    warning is shown before the silent rollback. An in-app error screen, a warning before the
+    rollback, and a recovery flow for the keylost file are known follow-ups.
 
 ### Signing
 

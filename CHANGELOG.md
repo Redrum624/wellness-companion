@@ -36,9 +36,10 @@ All notable changes to Wellness Companion are documented here.
   non-exportable AndroidKeyStore AES-GCM key) are now ciphertext on disk. An existing plaintext
   database migrates on a copy, is verified under the new key, then swaps in — keeping
   `wellness.db.plaintext.bak` — rather than ever starting from an empty database. Desktop fails
-  closed with an on-screen dialog naming the recovery files; Android's key-loss path differs (no
-  in-app message yet, and it silently rolls back to the pre-migration backup when one survives) —
-  see SECURITY.md for the accurate per-platform behavior. Affects:
+  closed with an on-screen dialog, naming the recovery files only when `wellness.db` itself is
+  missing — a key-only failure instead names `wellness.key` and the backups folder; Android's
+  key-loss path differs (no in-app message yet, and it silently rolls back to the pre-migration
+  backup when one survives) — see SECURITY.md for the accurate per-platform behavior. Affects:
   `windows/src/main/database.ts`, `windows/package.json`, `android/app/build.gradle.kts`,
   `android/.../di/AppModule.kt`, new `android/.../security/DbKeyManager.kt`, new
   `android/.../data/local/DbEncryptionMigrator.kt`.

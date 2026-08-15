@@ -64,6 +64,14 @@ export default function Sidebar() {
   // transcribe a second string.
   const [pairing, setPairing] = useState<string | null>(null)
   const [devices, setDevices] = useState<PairedDevice[]>([])
+  // Tracks the paired-device count outside React state so the `connected`
+  // handler below (registered once in the effect with deps []) can compare
+  // against the CURRENT count instead of the stale value captured when the
+  // closure was created.
+  const deviceCountRef = useRef(0)
+  // Mirrors the effect's local `alive` flag so callbacks fired from outside
+  // the effect (e.g. pairDevice, below) can also skip work after unmount.
+  const mountedRef = useRef(true)
   // The pairing code IS the phone's long-term secret once bound, and the
   // sidebar stays mounted all session — so it must not linger on screen
   // past the moment it stops being useful. Cleared on a successful pairing
@@ -86,7 +94,10 @@ export default function Sidebar() {
   const [confirmingForgetAll, setConfirmingForgetAll] = useState(false)
 
   const refreshDevices = (): void => {
-    window.sync.listDevices().then(setDevices)
+    window.sync.listDevices().then((list) => {
+      deviceCountRef.current = list.length
+      setDevices(list)
+    })
   }
 
   useEffect(() => {
@@ -97,7 +108,9 @@ export default function Sidebar() {
       setSyncInfo(`${ip}:${port}`)
     })
     window.sync.listDevices().then((list) => {
-      if (alive) setDevices(list)
+      if (!alive) return
+      deviceCountRef.current = list.length
+      setDevices(list)
     })
 
     const unsub = window.sync.onStatusChange((info) => {
@@ -112,17 +125,29 @@ export default function Sidebar() {
       } else if (info.status === 'connected' || info.status === 'synced') {
         setVersionMismatch(false)
       }
-      // A completed handshake updates lastSeen (and can bind a new device).
+      // A completed handshake updates lastSeen (and can bind a new device) —
+      // but the server emits `connected` for every completed handshake,
+      // including an already-paired phone reconnecting to sync. Clearing the
+      // pairing code on that broadcast would wipe a fresh code still on
+      // screen before the user got to use it, so only clear it when a NEW
+      // device actually bound (the device list grew).
       if (info.status === 'connected') {
-        refreshDevices()
-        // Pairing succeeded — the code has done its job. Clear it rather
-        // than let it sit on screen for the rest of the session.
-        clearPairingTimer()
-        setPairing(null)
+        window.sync.listDevices().then((list) => {
+          if (!alive) return
+          if (list.length > deviceCountRef.current) {
+            // Pairing succeeded — the code has done its job. Clear it rather
+            // than let it sit on screen for the rest of the session.
+            clearPairingTimer()
+            setPairing(null)
+          }
+          deviceCountRef.current = list.length
+          setDevices(list)
+        })
       }
     })
     return () => {
       alive = false
+      mountedRef.current = false
       unsub()
       clearPairingTimer()
     }
@@ -130,6 +155,7 @@ export default function Sidebar() {
 
   const pairDevice = (): void => {
     window.sync.createPairing().then(({ code, expiresAt }) => {
+      if (!mountedRef.current) return
       setPairing(code)
       clearPairingTimer()
       pairingTimer.current = setTimeout(() => setPairing(null), Math.max(0, expiresAt - Date.now()))
