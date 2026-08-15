@@ -69,6 +69,12 @@ object AppModule {
         // Upgraded web sockets disable read timeouts, so without a ping a peer
         // that vanishes mid-sync would hold the socket open indefinitely.
         .pingInterval(20, TimeUnit.SECONDS)
+        // transport: a silent OkHttp re-dial would open a SECOND wc-sync/4
+        // connection while SyncManager still holds the first connection's
+        // ephemeral key and record counters — the counters would restart at 0
+        // under a key that had already sealed records, which is the GCM
+        // nonce-reuse catastrophe (spec §2.5, I-2). Fail the call instead.
+        .retryOnConnectionFailure(false)
         .build()
 
     @Provides

@@ -82,6 +82,7 @@ private fun syncLabelFor(status: SyncStatus): String = when (status) {
     is SyncStatus.Connecting -> "Connecting..."
     is SyncStatus.Syncing -> "Syncing..."
     is SyncStatus.NeedsPairing -> "Enter code"
+    is SyncStatus.NeedsRepair -> "Re-pair"
     is SyncStatus.Done -> "✅ Done"
     is SyncStatus.Error -> "❌ Error"
 }
@@ -180,40 +181,78 @@ fun DashboardScreen(
                     val syncDetail = when (syncStatus) {
                         is SyncStatus.Done -> (syncStatus as SyncStatus.Done).message
                         is SyncStatus.Error -> (syncStatus as SyncStatus.Error).message
+                        is SyncStatus.NeedsRepair -> (syncStatus as SyncStatus.NeedsRepair).message
                         is SyncStatus.NeedsPairing ->
-                            "Enter the pairing code shown in the PC app's sidebar"
+                            "Tap Pair, then enter the key id and code shown in the PC app's sidebar"
                         else -> null
                     }
 
-                    // Pairing code. The PC refuses every request until this matches,
-                    // so nothing leaves the phone before it is set.
+                    // Pairing. The PC refuses every handshake until the phone
+                    // proves it holds the 128-bit secret behind this code, so
+                    // nothing leaves the phone before it is set.
+                    val pairingKeyId by syncViewModel.pairingKeyId.collectAsState()
                     val pairingCode by syncViewModel.pairingCode.collectAsState()
                     val isPaired by syncViewModel.isPaired.collectAsState()
+                    val pairingFormOpen by syncViewModel.pairingFormOpen.collectAsState()
+                    val pairingError by syncViewModel.pairingError.collectAsState()
+                    val repairPrompt by syncViewModel.repairPrompt.collectAsState()
 
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        androidx.compose.foundation.text.BasicTextField(
-                            value = pairingCode,
-                            onValueChange = { syncViewModel.setPairingCode(it) },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.labelSmall.copy(
-                                color = GreetingColor,
-                                letterSpacing = 2.sp
-                            ),
+                    // The PC would not authenticate this phone. The stored key is
+                    // NOT discarded here — anyone on the LAN can send that frame,
+                    // so re-pairing stays an explicit user action.
+                    repairPrompt?.let { prompt ->
+                        Column(
                             modifier = Modifier
-                                .weight(1f)
+                                .padding(horizontal = 20.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.45f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = prompt,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GreetingColor.copy(alpha = 0.75f)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    text = "Re-pair",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = GreetingColor.copy(alpha = 0.8f),
+                                    modifier = Modifier.clickable {
+                                        syncViewModel.dismissRepairPrompt()
+                                        syncViewModel.beginPairing()
+                                    }
+                                )
+                                Text(
+                                    text = "Not now",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = GreetingColor.copy(alpha = 0.5f),
+                                    modifier = Modifier.clickable { syncViewModel.dismissRepairPrompt() }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
+                    if (pairingFormOpen) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = pairingKeyId,
+                            onValueChange = { syncViewModel.setPairingKeyId(it) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.labelSmall.copy(color = GreetingColor),
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp)
+                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color.White.copy(alpha = 0.25f))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             decorationBox = { innerTextField ->
-                                if (pairingCode.isEmpty()) {
+                                if (pairingKeyId.isEmpty()) {
                                     Text(
-                                        "Pairing code from the PC",
+                                        "Key id shown under the code on the PC",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = GreetingColor.copy(alpha = 0.4f)
                                     )
@@ -222,15 +261,79 @@ fun DashboardScreen(
                             }
                         )
 
+                        Spacer(modifier = Modifier.height(6.dp))
+
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.White.copy(alpha = 0.35f))
-                                .clickable { syncViewModel.savePairingCode() }
-                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                                .padding(horizontal = 20.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = pairingCode,
+                                onValueChange = { syncViewModel.setPairingCode(it) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.labelSmall.copy(
+                                    color = GreetingColor,
+                                    letterSpacing = 2.sp
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.25f))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                decorationBox = { innerTextField ->
+                                    if (pairingCode.isEmpty()) {
+                                        Text(
+                                            "26-character pairing code",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = GreetingColor.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+
+                            Text(
+                                text = "Pair",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GreetingColor.copy(alpha = 0.6f),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.35f))
+                                    .clickable { syncViewModel.savePairing() }
+                                    .padding(horizontal = 12.dp, vertical = 9.dp)
+                            )
+
                             if (isPaired) {
+                                Text(
+                                    text = "Cancel",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = GreetingColor.copy(alpha = 0.45f),
+                                    modifier = Modifier
+                                        .clickable { syncViewModel.cancelPairing() }
+                                        .padding(horizontal = 4.dp, vertical = 9.dp)
+                                )
+                            }
+                        }
+
+                        pairingError?.let { error ->
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                color = GreetingColor.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(start = 20.dp, top = 2.dp)
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Rounded.Check,
                                     contentDescription = null,
@@ -238,11 +341,17 @@ fun DashboardScreen(
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Paired with this PC",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = GreetingColor.copy(alpha = 0.6f)
+                                )
                             }
                             Text(
-                                text = if (isPaired) "Paired" else "Pair",
+                                text = "Re-pair",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = GreetingColor.copy(alpha = 0.6f)
+                                color = GreetingColor.copy(alpha = 0.45f),
+                                modifier = Modifier.clickable { syncViewModel.beginPairing() }
                             )
                         }
                     }
