@@ -133,6 +133,25 @@ dependencies {
     implementation("androidx.hilt:hilt-work:1.2.0")
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
+    // at-rest: SQLCipher via Room's SupportFactory (spec §5). Exclude the
+    // transitive sqlite-android module so the pinned androidx.sqlite build
+    // below is the one Room actually loads.
+    implementation("net.zetetic:sqlcipher-android:4.17.0") {
+        exclude(group = "androidx.sqlite", module = "sqlite-android")
+    }
+    implementation("androidx.sqlite:sqlite:2.6.2")
+    // `androidx.sqlite:sqlite` 2.6.2 is a KMP umbrella coordinate whose actual
+    // Android classes.jar (androidx.sqlite.db.SupportSQLiteOpenHelper etc.) live
+    // in this platform artifact via a Gradle Module Metadata "available-at"
+    // redirect. Measured on-device: that redirect resolves for the COMPILE
+    // classpath but not for the runtime/dex-packaging classpath in this
+    // AGP/Gradle setup, so without this explicit declaration the app compiles
+    // fine and then crashes at startup with
+    // `NoClassDefFoundError: SupportSQLiteOpenHelper$Factory` (WorkManager's own
+    // WorkDatabase hits the same missing class first). Declaring the concrete
+    // artifact directly makes sure its classes actually reach the dex.
+    implementation("androidx.sqlite:sqlite-android:2.6.2")
+
     // Unit tests (pure JVM, src/test) — security-hardening crypto suites.
     testImplementation("junit:junit:4.13.2")
 }

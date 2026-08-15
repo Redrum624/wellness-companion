@@ -1,15 +1,19 @@
 package com.wellnesscompanion.app.di
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Room
 import com.google.gson.Gson
+import com.wellnesscompanion.app.data.local.DbEncryptionMigrator
 import com.wellnesscompanion.app.data.local.WellnessDatabase
 import com.wellnesscompanion.app.data.local.dao.ChoreTemplateDao
 import com.wellnesscompanion.app.data.local.dao.EntryDao
 import com.wellnesscompanion.app.data.local.dao.HobbyDao
 import com.wellnesscompanion.app.data.local.dao.PersonDao
 import com.wellnesscompanion.app.data.local.dao.SettingsDao
+import com.wellnesscompanion.app.security.DbKeyManager
 import com.wellnesscompanion.app.sync.SyncManager
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import dagger.Module
@@ -19,6 +23,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
+private const val TAG = "AppModule"
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -26,13 +32,52 @@ object AppModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): WellnessDatabase {
-        return Room.databaseBuilder(
+        // at-rest: SQLCipher via Room's SupportFactory (spec §5.2). Encryption
+        // is wired here only -- DAOs, entities and queries are untouched, and
+        // the sync layer keeps reading/writing through the normal DAOs.
+        DbEncryptionMigrator.ensureNativeLibraryLoaded()
+
+        val dbFile = context.getDatabasePath("wellness.db")
+        val passphrase = DbKeyManager.getOrCreatePassphrase(context)
+
+        // Recover a swap interrupted mid-rename BEFORE anything else touches
+        // dbFile (mirrors the desktop's recoverInterruptedSwap, spec §5.3).
+        val recovery = DbEncryptionMigrator.recoverInterruptedSwap(dbFile, passphrase)
+        if (recovery is DbEncryptionMigrator.RecoveryResult.Unrecoverable) {
+            Log.e(TAG, "Database error, refusing to open wellness.db: ${recovery.reason}")
+            error(recovery.reason)
+        }
+
+        // Plaintext -> encrypted, detected by magic header, never a flag. ANY
+        // failure leaves dbFile exactly as it was; open it unencrypted this
+        // session and retry next launch -- never brick the user's data.
+        val migration = DbEncryptionMigrator.migrateIfNeeded(dbFile, passphrase)
+        if (migration is DbEncryptionMigrator.MigrationResult.Failed) {
+            Log.e(TAG, "Database encryption migration failed, running unencrypted: ${migration.reason}")
+        } else if (migration is DbEncryptionMigrator.MigrationResult.Migrated) {
+            Log.i(TAG, "Database migrated to encrypted storage (${migration.rows} entries).")
+        }
+        val openEncrypted = migration !is DbEncryptionMigrator.MigrationResult.Failed
+
+        val builder = Room.databaseBuilder(
             context,
             WellnessDatabase::class.java,
             "wellness.db"
         )
             .addMigrations(WellnessDatabase.MIGRATION_1_2, WellnessDatabase.MIGRATION_2_3)
-            .build()
+
+        if (openEncrypted) {
+            // Goes through the same named seam the migrator's own C-API opens use
+            // (DbEncryptionMigrator.rawKeyBytes) -- the raw 32-byte passphrase,
+            // unmodified, is exactly what SupportOpenHelperFactory expects, and
+            // it must be byte-identical to the key the migration wrote with.
+            builder.openHelperFactory(SupportOpenHelperFactory(DbEncryptionMigrator.rawKeyBytes(passphrase)))
+        }
+        // else: migration failed and the file is still plaintext on disk --
+        // fall through to Room's default (unencrypted) opener so the app keeps
+        // working this session; the header check retries next launch.
+
+        return builder.build()
     }
 
     @Provides
