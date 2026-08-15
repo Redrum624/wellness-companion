@@ -56,9 +56,11 @@ function lastSeenLabel(ts: number): string {
 export default function Sidebar() {
   const [syncInfo, setSyncInfo] = useState('')
   const [syncDetail, setSyncDetail] = useState('')
-  // A pairing is minted on demand and shown once — it is a one-time 128-bit
-  // secret, not a standing code, so there is nothing to display until asked.
-  const [pairing, setPairing] = useState<{ keyId: string; code: string } | null>(null)
+  // A pairing is minted on demand and shown once — it is a one-time code, not a
+  // standing one, so there is nothing to display until asked. Only the code is
+  // held: it already carries the keyId, and the user must never be asked to
+  // transcribe a second string.
+  const [pairing, setPairing] = useState<string | null>(null)
   const [devices, setDevices] = useState<PairedDevice[]>([])
 
   const refreshDevices = (): void => {
@@ -89,7 +91,7 @@ export default function Sidebar() {
   }, [])
 
   const pairDevice = (): void => {
-    window.sync.createPairing().then(({ keyId, code }) => setPairing({ keyId, code }))
+    window.sync.createPairing().then(({ code }) => setPairing(code))
   }
 
   const removeDevice = (deviceId: string): void => {
@@ -154,20 +156,21 @@ export default function Sidebar() {
             <div style={{ fontSize: 10, color: '#3D326260', marginBottom: 2 }}>
               Type this on the phone (valid 5 min)
             </div>
+            {/* Rendered group-by-group so it wraps at the dashes instead of
+                mid-group — this is read aloud and typed on a phone. */}
             <div
               title="Enter this code on your phone once; it becomes that phone's key"
               style={{
+                display: 'flex', flexWrap: 'wrap', gap: '2px 6px', justifyContent: 'center',
                 fontSize: 12, fontWeight: 700, color: '#3D3262',
                 background: 'rgba(255,255,255,0.35)', borderRadius: 8,
                 padding: '6px 8px', userSelect: 'text', cursor: 'text',
-                fontFamily: 'monospace', letterSpacing: '0.5px',
-                textAlign: 'center', wordBreak: 'break-all'
+                fontFamily: 'monospace', letterSpacing: '0.5px'
               }}
             >
-              {pairing.code}
-            </div>
-            <div style={{ fontSize: 9, color: '#3D326250', marginTop: 2, wordBreak: 'break-all' }}>
-              key {pairing.keyId}
+              {pairing.split('-').map((group, i) => (
+                <span key={i}>{group}</span>
+              ))}
             </div>
           </div>
         )}

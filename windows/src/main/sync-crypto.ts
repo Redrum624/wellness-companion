@@ -246,44 +246,76 @@ export function openRecord(
  */
 export const PAIRING_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789' // gitleaks:allow
 const PAIRING_RADIX = BigInt(PAIRING_ALPHABET.length)
-/** ceil(128 / log2(31)) = 26 glyphs carry the full 128-bit secret. */
-export const PAIRING_CODE_LENGTH = 26
+
+/**
+ * The pairing code carries `keyId(4) ‖ secret(16)` — ONE string for the user,
+ * never a lookup handle plus a secret to transcribe separately. (The original
+ * design paired a 36-char UUID with a 26-char secret: ~62 characters for the
+ * single interaction that makes sync work at all.)
+ *
+ * `keyId` is a public lookup handle with no entropy requirement; a collision is
+ * harmless because the wrong secret simply fails the MAC into the existing
+ * `4006 repair_required` recovery. The SECRET is still 128 bits — that floor
+ * does not move.
+ */
+export const PAIRING_KEY_ID_BYTES = 4
+export const PAIRING_CODE_BYTES = PAIRING_KEY_ID_BYTES + PAIRING_SECRET_BYTES // 20
+/** ceil(160 / log2(31)) = 33 glyphs carry all 20 bytes (31^33 > 2^160). */
+export const PAIRING_CODE_LENGTH = 33
 const PAIRING_GROUP = 5
-const MAX_SECRET = 1n << 128n
+const MAX_CODE_VALUE = 1n << BigInt(PAIRING_CODE_BYTES * 8)
+
+export interface PairingCodeParts {
+  /** 8 lowercase hex characters — the `keyId` exactly as it travels in `hs1`. */
+  keyId: string
+  /** 16 bytes / 128 bits. */
+  secret: Buffer
+}
 
 /** 128 bits. The old ~40-bit 8-character code is gone and must not come back. */
 export function randomPairingSecret(): Buffer {
   return randomBytes(PAIRING_SECRET_BYTES)
 }
 
-/** Render a 16-byte secret as a fixed-width, dash-grouped base-31 code. */
-export function encodePairingSecret(secret: Buffer): string {
+/** 4 random bytes as 8 lowercase hex — the wire form of `keyId`. */
+export function randomKeyId(): string {
+  return randomBytes(PAIRING_KEY_ID_BYTES).toString('hex')
+}
+
+/**
+ * Render `keyId ‖ secret` as one fixed-width, dash-grouped base-31 code:
+ * big-endian over the 20 bytes, 33 glyphs, grouped 5-5-5-5-5-5-3.
+ */
+export function encodePairingCode(keyId: string, secret: Buffer): string {
+  if (!/^[0-9a-f]{8}$/.test(keyId)) {
+    throw new Error('keyId must be 8 lowercase hex characters')
+  }
   if (secret.length !== PAIRING_SECRET_BYTES) {
     throw new Error(`pairing secret must be ${PAIRING_SECRET_BYTES} bytes`)
   }
-  let n = BigInt(`0x${secret.toString('hex')}`)
+  let n = BigInt(`0x${keyId}${secret.toString('hex')}`)
   const glyphs: string[] = []
   for (let i = 0; i < PAIRING_CODE_LENGTH; i++) {
     glyphs.unshift(PAIRING_ALPHABET[Number(n % PAIRING_RADIX)])
     n /= PAIRING_RADIX
   }
-  /* istanbul ignore next — 31^26 > 2^128, so this is unreachable by construction */
-  if (n !== 0n) throw new Error('pairing secret overflowed the code length')
+  /* istanbul ignore next — 31^33 > 2^160, so this is unreachable by construction */
+  if (n !== 0n) throw new Error('pairing code overflowed its length')
 
   const groups: string[] = []
   const flat = glyphs.join('')
   for (let i = 0; i < flat.length; i += PAIRING_GROUP) {
     groups.push(flat.slice(i, i + PAIRING_GROUP))
   }
-  // 26 = 5*5 + 1; a lone trailing glyph reads as a typo, so fold it back.
+  // 33 = 6*5 + 3, so no group is ever a lone glyph; fold anyway if that changes.
   if (groups.length > 1 && groups[groups.length - 1].length === 1) {
     groups[groups.length - 2] += groups.pop()
   }
   return groups.join('-')
 }
 
-/** Inverse of encodePairingSecret. Dashes/whitespace and case are ignored. */
-export function decodePairingCode(code: string): Buffer {
+/** Inverse of encodePairingCode. Dashes, whitespace and case are ignored. */
+export function decodePairingCode(code: string): PairingCodeParts {
   const cleaned = String(code).trim().toUpperCase().replace(/[\s-]/g, '')
   if (cleaned.length !== PAIRING_CODE_LENGTH) {
     throw new Error(`pairing code must be ${PAIRING_CODE_LENGTH} characters`)
@@ -294,6 +326,10 @@ export function decodePairingCode(code: string): Buffer {
     if (idx < 0) throw new Error(`invalid pairing-code character ${JSON.stringify(ch)}`)
     n = n * PAIRING_RADIX + BigInt(idx)
   }
-  if (n >= MAX_SECRET) throw new Error('pairing code out of range')
-  return Buffer.from(n.toString(16).padStart(PAIRING_SECRET_BYTES * 2, '0'), 'hex')
+  if (n >= MAX_CODE_VALUE) throw new Error('pairing code out of range')
+  const bytes = Buffer.from(n.toString(16).padStart(PAIRING_CODE_BYTES * 2, '0'), 'hex')
+  return {
+    keyId: bytes.subarray(0, PAIRING_KEY_ID_BYTES).toString('hex'),
+    secret: bytes.subarray(PAIRING_KEY_ID_BYTES)
+  }
 }

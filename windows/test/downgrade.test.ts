@@ -111,14 +111,16 @@ const textFrames = (ws: FakeSocket): any[] => ws.sent.filter((f) => !f.binary)
 const binaryFrames = (ws: FakeSocket): any[] => ws.sent.filter((f) => f.binary)
 const lastText = (ws: FakeSocket): any => JSON.parse(textFrames(ws).slice(-1)[0].data)
 
-const KEY_ID = '11111111-1111-4111-8111-111111111111'
+// keyId is 4 random bytes as 8 lowercase hex; deviceId stays a phone-side UUID.
+const KEY_ID = '1a2b3c4d'
 const DEVICE_ID = '22222222-2222-4222-8222-222222222222'
 
 /** Drives the phone half of the handshake, so this doubles as an interop check. */
 function completeHandshake(
   ws: FakeSocket,
   conn: any,
-  secret: Buffer
+  secret: Buffer,
+  keyId: string = KEY_ID
 ): { kC2S: Buffer; kS2C: Buffer } {
   const helloJson: string = textFrames(ws)[0].data
   const hello = JSON.parse(helloJson)
@@ -131,7 +133,7 @@ function completeHandshake(
   const hs1Json = JSON.stringify({
     type: 'hs1',
     proto: 'x1',
-    keyId: KEY_ID,
+    keyId,
     deviceId: DEVICE_ID,
     pub_c: eph.publicSpkiB64,
     nonce_c: randomBytes(32).toString('base64')
@@ -487,19 +489,55 @@ describe('pairing lockout is scoped to the pairing path (not the whole handshake
 })
 
 describe('pairing mint', () => {
-  test('mints a 128-bit secret behind a ~26-glyph code and a fresh keyId', () => {
+  test('mints ONE code carrying both the keyId and a 128-bit secret', () => {
     const a = sync.createPairing()
     const b = sync.createPairing()
     expect(a.keyId).not.toBe(b.keyId)
+    expect(a.keyId).toMatch(/^[0-9a-f]{8}$/)
     expect(a.code.replace(/-/g, '').length).toBe(X.PAIRING_CODE_LENGTH)
     // The old 8-character (~40-bit) code must never come back.
     expect(a.code.replace(/-/g, '').length).toBeGreaterThan(8)
-    expect(X.decodePairingCode(a.code).length).toBe(16)
     expect(a.expiresAt).toBeGreaterThan(Date.now())
+
+    // The user copies the code and nothing else: it yields the keyId too.
+    const decoded = X.decodePairingCode(a.code)
+    expect(decoded.keyId).toBe(a.keyId)
+    expect(decoded.secret.length).toBe(16)
 
     // The pending slot holds exactly the secret the code encodes.
     const pending = dbMock.getPending()[a.keyId]
-    expect(pending.secret_b64).toBe(X.decodePairingCode(a.code).toString('base64'))
+    expect(pending.secret_b64).toBe(decoded.secret.toString('base64'))
+  })
+
+  test('a minted keyId never collides with a pending or bound one', () => {
+    dbMock.__setDeviceKey('other-device', {
+      keyId: 'aaaaaaaa',
+      secret_b64: X.randomPairingSecret().toString('base64'),
+      label: 'Other',
+      created: 1,
+      lastSeen: 1
+    })
+    const minted = new Set<string>()
+    for (let i = 0; i < 50; i++) {
+      const { keyId } = sync.createPairing()
+      expect(keyId).not.toBe('aaaaaaaa')
+      expect(minted.has(keyId)).toBe(false)
+      minted.add(keyId)
+    }
+    expect(minted.size).toBe(50)
+  })
+
+  test('the code the phone types resolves to the pending slot it was minted for', () => {
+    const { keyId, code } = sync.createPairing()
+    // Exactly what the phone does: strip dashes, upper-case, decode, use both.
+    const typed = X.decodePairingCode(code.replace(/-/g, '').toLowerCase())
+    expect(typed.keyId).toBe(keyId)
+
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
+    completeHandshake(ws, conn, typed.secret, typed.keyId)
+    expect(conn.channelEstablished).toBe(true)
+    expect(dbMock.getDeviceKeys()[DEVICE_ID].keyId).toBe(keyId)
   })
 
   test('minting a pairing clears a lockout left by failed attempts', () => {

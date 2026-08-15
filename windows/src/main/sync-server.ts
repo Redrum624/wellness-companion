@@ -4,7 +4,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 // at-rest: type-only import follows the encrypted-DB binding swap (spec §4.2).
 import type Database from 'better-sqlite3-multiple-ciphers'
 import { networkInterfaces } from 'os'
-import { randomBytes, randomUUID } from 'crypto'
+import { randomBytes } from 'crypto'
 // transport: wc-sync/4 replaces the plaintext v3 protocol wholesale.
 import {
   getDatabase,
@@ -773,8 +773,21 @@ export async function stopSyncServer(): Promise<void> {
  * secret IS the long-term device key, so there is no in-tunnel mint step to
  * race, and nothing low-entropy ever appears on the wire.
  */
+function mintKeyId(): string {
+  // 32 bits over <= MAX_STORED_DEVICE_KEYS keys makes a collision vanishingly
+  // rare, and a collision is harmless anyway (the wrong secret fails the MAC
+  // into 4006 repair_required) — but retrying is one line, so retry.
+  const pending = getPending()
+  const bound = new Set(Object.values(getDeviceKeys()).map((rec) => rec.keyId))
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const keyId = X.randomKeyId()
+    if (!pending[keyId] && !bound.has(keyId)) return keyId
+  }
+  throw new Error('could not mint a unique pairing keyId')
+}
+
 export function createPairing(): { keyId: string; code: string; expiresAt: number } {
-  const keyId = randomUUID()
+  const keyId = mintKeyId()
   const secret = X.randomPairingSecret()
   const created = Date.now()
   putPending(keyId, { secret_b64: secret.toString('base64'), created, ttlMs: PAIRING_TTL_MS })
@@ -783,7 +796,10 @@ export function createPairing(): { keyId: string; code: string; expiresAt: numbe
   // keep the owner permanently unable to pair.
   resetBackoff()
   broadcastSyncStatus('pairing', 'Enter the pairing code on your phone')
-  return { keyId, code: X.encodePairingSecret(secret), expiresAt: created + PAIRING_TTL_MS }
+  // ONE string for the user: the code already carries the keyId. `keyId` is
+  // returned alongside for the desktop's own display/logging, NOT as a second
+  // thing to transcribe.
+  return { keyId, code: X.encodePairingCode(keyId, secret), expiresAt: created + PAIRING_TTL_MS }
 }
 
 export function listDevices(): Array<{

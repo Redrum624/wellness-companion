@@ -214,39 +214,81 @@ describe('GCM record framing', () => {
   })
 })
 
-describe('pairing secret encoding (128-bit, confusable-free)', () => {
-  test('encodes 16 bytes as 26 glyphs from the 31-glyph alphabet', () => {
+describe('pairing code — ONE string carrying keyId(4) + secret(16)', () => {
+  test('encodes 20 bytes as 33 glyphs from the 31-glyph alphabet', () => {
     expect(C.PAIRING_ALPHABET.length).toBe(31)
     expect(/[01ILO]/.test(C.PAIRING_ALPHABET)).toBe(false)
-    const code = C.encodePairingSecret(Buffer.alloc(16, 0xff))
-    expect(code.replace(/-/g, '').length).toBe(26)
+    expect(C.PAIRING_KEY_ID_BYTES).toBe(4)
+    expect(C.PAIRING_CODE_BYTES).toBe(20)
+
+    const code = C.encodePairingCode('ffffffff', Buffer.alloc(16, 0xff))
+    expect(code.replace(/-/g, '').length).toBe(C.PAIRING_CODE_LENGTH)
+    expect(C.PAIRING_CODE_LENGTH).toBe(33)
     for (const ch of code.replace(/-/g, '')) expect(C.PAIRING_ALPHABET).toContain(ch)
   })
 
-  test('round-trips arbitrary 16-byte secrets, grouping and case are ignored', () => {
+  test('is grouped 5-5-5-5-5-5-3 for reading aloud', () => {
+    const code = C.encodePairingCode(C.randomKeyId(), C.randomPairingSecret())
+    expect(code.split('-').map((g) => g.length)).toEqual([5, 5, 5, 5, 5, 5, 3])
+    expect(code.length).toBe(33 + 6)
+  })
+
+  test('round-trips mint -> render -> decode to the same keyId and secret', () => {
     for (let i = 0; i < 50; i++) {
+      const keyId = C.randomKeyId()
       const secret = C.randomPairingSecret()
+      expect(keyId).toMatch(/^[0-9a-f]{8}$/)
       expect(secret.length).toBe(16)
-      const code = C.encodePairingSecret(secret)
-      expect(hex(C.decodePairingCode(code))).toBe(hex(secret))
-      expect(hex(C.decodePairingCode(code.replace(/-/g, '').toLowerCase()))).toBe(hex(secret))
+
+      const decoded = C.decodePairingCode(C.encodePairingCode(keyId, secret))
+      expect(decoded.keyId).toBe(keyId)
+      expect(hex(decoded.secret)).toBe(hex(secret))
     }
   })
 
-  test('the all-zero secret still round-trips (fixed width, no truncation)', () => {
-    const code = C.encodePairingSecret(Buffer.alloc(16, 0))
-    expect(code.replace(/-/g, '').length).toBe(26)
-    expect(hex(C.decodePairingCode(code))).toBe('00'.repeat(16))
+  test('dashes, whitespace and case are ignored on decode', () => {
+    const keyId = C.randomKeyId()
+    const secret = C.randomPairingSecret()
+    const code = C.encodePairingCode(keyId, secret)
+    const flat = code.replace(/-/g, '')
+
+    for (const variant of [flat, flat.toLowerCase(), `  ${code.toLowerCase()}  `, code]) {
+      const decoded = C.decodePairingCode(variant)
+      expect(decoded.keyId).toBe(keyId)
+      expect(hex(decoded.secret)).toBe(hex(secret))
+    }
+  })
+
+  test('the all-zero code round-trips (fixed width, no truncation)', () => {
+    const code = C.encodePairingCode('00000000', Buffer.alloc(16, 0))
+    expect(code.replace(/-/g, '').length).toBe(33)
+    const decoded = C.decodePairingCode(code)
+    expect(decoded.keyId).toBe('00000000')
+    expect(hex(decoded.secret)).toBe('00'.repeat(16))
+  })
+
+  test('the keyId occupies the LEADING bytes (big-endian over keyId||secret)', () => {
+    const a = C.decodePairingCode(C.encodePairingCode('deadbeef', Buffer.alloc(16, 0)))
+    expect(a.keyId).toBe('deadbeef')
+    expect(hex(a.secret)).toBe('00'.repeat(16))
+    const b = C.decodePairingCode(C.encodePairingCode('00000000', Buffer.alloc(16, 0xff)))
+    expect(b.keyId).toBe('00000000')
+    expect(hex(b.secret)).toBe('ff'.repeat(16))
   })
 
   test('a malformed code is rejected', () => {
     expect(() => C.decodePairingCode('TOO-SHORT')).toThrow()
-    expect(() => C.decodePairingCode('!'.repeat(26))).toThrow()
+    expect(() => C.decodePairingCode('!'.repeat(33))).toThrow()
+    // 26 glyphs was the OLD length — it must not decode as if it were valid.
+    expect(() => C.decodePairingCode('A'.repeat(26))).toThrow()
+    expect(() => C.encodePairingCode('ABCDEF12', Buffer.alloc(16))).toThrow() // not lowercase hex
+    expect(() => C.encodePairingCode('deadbeef', Buffer.alloc(8))).toThrow() // short secret
   })
 
-  test('randomPairingSecret has 128 bits of entropy, not 40', () => {
+  test('the secret is still 128 bits — the floor did not move', () => {
     const seen = new Set<string>()
     for (let i = 0; i < 100; i++) seen.add(hex(C.randomPairingSecret()))
     expect(seen.size).toBe(100)
+    expect(C.randomPairingSecret().length * 8).toBe(128)
   })
 })
