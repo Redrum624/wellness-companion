@@ -21,7 +21,9 @@ declare global {
       listDevices: () => Promise<PairedDevice[]>
       removeDevice: (deviceId: string) => Promise<boolean>
       regeneratePairingToken: () => Promise<void>
-      onStatusChange: (callback: (info: { status: string; detail?: string }) => void) => () => void
+      onStatusChange: (
+        callback: (info: { status: string; detail?: string; code?: string }) => void
+      ) => () => void
     }
   }
 }
@@ -88,11 +90,11 @@ export default function Sidebar() {
     const unsub = window.sync.onStatusChange((info) => {
       if (!alive) return
       setSyncDetail(info.detail || info.status)
-      // The server has no dedicated "update_required" status — it broadcasts
-      // the v3-tombstone case as a generic 'error' with this detail text (see
-      // sync-server.ts's tombstoneLegacyFrame, close code 4005). Match on it
-      // rather than inventing a new status the main process doesn't send.
-      if (info.status === 'error' && info.detail?.toLowerCase().includes('outdated')) {
+      // Machine-readable signal, not a prose match: sync-server.ts sends
+      // code: 'update_required' from both 4005 close sites (the v3 tombstone
+      // in tombstoneLegacyFrame and the proto-mismatch branch in handleHs1),
+      // so a copy edit to `detail` can never silently break this banner.
+      if (info.code === 'update_required') {
         setVersionMismatch(true)
       } else if (info.status === 'connected' || info.status === 'synced') {
         setVersionMismatch(false)
@@ -168,8 +170,8 @@ export default function Sidebar() {
               lineHeight: 1.4
             }}
           >
-            Your phone app is older than this PC app. Open &ldquo;Install the phone app&rdquo; from
-            the Start Menu to update it.
+            Your phone app is older than this PC app. Open "Install the phone app" from the Start
+            Menu to update it.
           </div>
         )}
         <div style={{ fontSize: 10, color: '#3D326260', marginBottom: 2 }}>Phone sync</div>
@@ -255,28 +257,35 @@ export default function Sidebar() {
         {devices.length > 0 && (
           <div style={{ marginTop: 6 }}>
             {confirmingForgetAll ? (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={forgetAllDevices}
-                  title="This cannot be undone — every phone will need to re-pair"
-                  style={{
-                    flex: 1, padding: '6px 10px', fontSize: 10, fontWeight: 700,
-                    color: '#fff', background: '#B3261E', border: 'none',
-                    borderRadius: 8, cursor: 'pointer'
-                  }}
-                >
-                  Confirm: forget all {devices.length} device{devices.length === 1 ? '' : 's'}
-                </button>
-                <button
-                  onClick={() => setConfirmingForgetAll(false)}
-                  style={{
-                    padding: '6px 10px', fontSize: 10, fontWeight: 600,
-                    color: '#3D3262', background: 'rgba(255,255,255,0.45)',
-                    border: 'none', borderRadius: 8, cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
+              <div>
+                {/* Visible, not just a tooltip — a destructive control's
+                    consequence must be readable without hovering. */}
+                <div style={{ fontSize: 10, color: '#B3261E', marginBottom: 4, lineHeight: 1.4 }}>
+                  This cannot be undone. Every phone will need to re-pair before it can sync again.
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={forgetAllDevices}
+                    title="This cannot be undone — every phone will need to re-pair"
+                    style={{
+                      flex: 1, padding: '6px 10px', fontSize: 10, fontWeight: 700,
+                      color: '#fff', background: '#B3261E', border: 'none',
+                      borderRadius: 8, cursor: 'pointer'
+                    }}
+                  >
+                    Confirm: forget all {devices.length} device{devices.length === 1 ? '' : 's'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmingForgetAll(false)}
+                    style={{
+                      padding: '6px 10px', fontSize: 10, fontWeight: 600,
+                      color: '#3D3262', background: 'rgba(255,255,255,0.45)',
+                      border: 'none', borderRadius: 8, cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             ) : (
               <button

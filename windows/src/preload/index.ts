@@ -61,7 +61,9 @@ const syncApi = {
   // Last resort: forget every paired device.
   regeneratePairingToken: (): Promise<void> =>
     ipcRenderer.invoke('sync:regeneratePairingToken'),
-  onStatusChange: (callback: (info: { status: string; detail?: string }) => void) => {
+  onStatusChange: (
+    callback: (info: { status: string; detail?: string; code?: string }) => void
+  ) => {
     const handler = (_event: any, info: any) => callback(info)
     ipcRenderer.on('sync:status', handler)
     return () => ipcRenderer.removeListener('sync:status', handler)

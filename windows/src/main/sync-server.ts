@@ -127,9 +127,12 @@ export interface SyncConn {
 
 const peers = new Map<SyncSocket, SyncConn>()
 
-function broadcastSyncStatus(status: string, detail?: string): void {
+// `code` is an optional machine-readable companion to `detail`: the renderer
+// can match on it instead of parsing English prose, so a copy edit to `detail`
+// never silently breaks a UI decision keyed off the wording.
+function broadcastSyncStatus(status: string, detail?: string, code?: string): void {
   BrowserWindow.getAllWindows().forEach((win) => {
-    if (!win.isDestroyed()) win.webContents.send('sync:status', { status, detail })
+    if (!win.isDestroyed()) win.webContents.send('sync:status', { status, detail, code })
   })
 }
 
@@ -295,7 +298,7 @@ export function handleFrame(
  */
 function tombstoneLegacyFrame(conn: SyncConn): void {
   sendHandshake(conn, { type: 'error', code: 'update_required' })
-  broadcastSyncStatus('error', 'Phone app is outdated — update it to sync.')
+  broadcastSyncStatus('error', 'Phone app is outdated — update it to sync.', 'update_required')
   dropConnection(conn, X.CLOSE_UPDATE_REQUIRED, 'update_required')
 }
 
@@ -371,6 +374,7 @@ function handleHs1(conn: SyncConn, wireBytes: Buffer, msg: any): void {
   }
   if (msg.proto !== X.CRYPTO) {
     sendHandshake(conn, { type: 'error', code: 'update_required' })
+    broadcastSyncStatus('error', 'Phone app is outdated — update it to sync.', 'update_required')
     return dropConnection(conn, X.CLOSE_UPDATE_REQUIRED, 'unsupported crypto')
   }
   if (
