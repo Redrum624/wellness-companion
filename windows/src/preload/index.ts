@@ -49,8 +49,9 @@ const syncApi = {
   getStatus: () => ipcRenderer.invoke('sync:getStatus'),
   getPort: () => ipcRenderer.invoke('sync:getPort'),
   getLocalIp: () => ipcRenderer.invoke('sync:getLocalIp'),
-  // Mints a one-time 128-bit pairing secret, rendered as a ~26-character code.
-  // The phone types it once; it becomes that phone's long-term device key.
+  // Mints a one-time 128-bit pairing secret, rendered as a 33-character code
+  // (grouped 5-5-5-5-5-5-3). The phone types it once; it becomes that phone's
+  // long-term device key.
   createPairing: (): Promise<{ keyId: string; code: string; expiresAt: number }> =>
     ipcRenderer.invoke('sync:createPairing'),
   listDevices: (): Promise<PairedDevice[]> => ipcRenderer.invoke('sync:listDevices'),

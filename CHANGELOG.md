@@ -2,6 +2,59 @@
 
 All notable changes to Wellness Companion are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Encrypted, mutually authenticated LAN sync (`wc-sync/4`).** Every sync connection now runs a
+  fresh P-256 ECDH key exchange, HKDF-SHA256, and AES-256-GCM record encryption, authenticated by a
+  128-bit pairing secret that becomes a persisted per-device key; forward secrecy holds, so stealing
+  a device key later does not decrypt sessions recorded earlier. Cause: v3 synced over plain `ws://`
+  with an ~40-bit access code — anyone who captured one handshake could brute-force that code
+  offline in minutes, and the traffic itself was never hidden from anyone on the LAN. Fix: the v3
+  plaintext data path is physically deleted (a legacy peer gets a tombstone reply and zero rows
+  move — there is no fallback to negotiate down to), and every application message after the
+  handshake is a binary AES-256-GCM record. Affects: `windows/src/main/sync-server.ts`, new
+  `windows/src/main/sync-crypto.ts`, `windows/src/main/database.ts`,
+  `android/.../sync/SyncManager.kt`, new `android/.../sync/SyncCrypto.kt`.
+- **Single-code device pairing, with per-device management.** Pairing now delivers one
+  33-character code (e.g. `CPR38-KAHBY-4EBBB-QPG9N-B4WFR-HXTY9-NNT`) instead of a typed access
+  password, and the desktop sidebar lists every paired device with a last-seen time and its own
+  **Remove**, so revoking one phone doesn't mean forgetting the rest. "Regenerate" remains a
+  last-resort that forgets every device at once. Affects:
+  `windows/src/renderer/src/components/Sidebar.tsx`, `windows/src/preload/index.ts`,
+  `windows/src/main/sync-server.ts`, `windows/src/main/database.ts`.
+- **Encrypted local databases, on both platforms, with non-bricking migration.** The desktop
+  database (`better-sqlite3-multiple-ciphers`, key wrapped by Electron `safeStorage`/DPAPI in a
+  separate `wellness.key`) and the phone's Room database (SQLCipher, key wrapped by a
+  non-exportable AndroidKeyStore AES-GCM key) are now ciphertext on disk. An existing plaintext
+  database migrates on a copy, is verified under the new key, then swaps in — keeping
+  `wellness.db.plaintext.bak` — and either platform fails closed with an on-screen message naming
+  the recovery files rather than ever starting from an empty database. Affects:
+  `windows/src/main/database.ts`, `windows/package.json`, `android/app/build.gradle.kts`,
+  `android/.../di/AppModule.kt`, new `android/.../security/DbKeyManager.kt`, new
+  `android/.../data/local/DbEncryptionMigrator.kt`.
+
+### Fixed
+
+- **A failed migration swap could leave the app starting empty.** Cause: the plaintext-to-encrypted
+  swap is two renames with a window where the live database file doesn't exist; if the process died
+  there, or the second rename failed and the restore rename also failed, the next launch saw no
+  database, skipped every guard that assumed one had existed, and let the driver create a fresh
+  empty one over data that was still perfectly intact in the pre-migration copy. Fix: both platforms
+  now check for the database file before ever opening it and recover from the surviving
+  pre-migration copy or plaintext backup first; recovery re-runs on every launch until it succeeds,
+  and cleanup never deletes a survivor while the live database is missing. Affects:
+  `windows/src/main/database.ts`, `android/.../data/local/DbEncryptionMigrator.kt`,
+  `android/.../di/AppModule.kt`.
+- **A global pairing lockout could be tripped by any LAN host.** Cause: the exponential backoff
+  that throttles repeated failed key checks (wrong pairing code, or a stale device key hitting
+  `repair_required`) is one shared counter, not scoped per attempt — so a noisy or hostile device on
+  the LAN could lock the owner out of pairing new devices too, with no way back in. Fix: starting a
+  new pairing is an explicit user action that resets the lockout, so the owner is never permanently
+  blocked, only inconvenienced. Affects: `windows/src/main/sync-server.ts`,
+  `windows/src/main/database.ts`.
+
 ## [1.2.0] - 2026-08-15
 
 Three pieces of user feedback, plus the update path they exposed.

@@ -88,8 +88,10 @@ and writes weekly summaries with a local LLM.
 
 ## Features
 
-**Sync** — mDNS discovery, WebSocket on port 9847, gated by a pairing code · incremental transfers ·
-manual IP fallback when multicast is blocked.
+**Sync** — mDNS discovery, end-to-end encrypted over WebSocket on port 9847 (ephemeral ECDH +
+AES-256-GCM) · single-code device pairing, no shared password · per-device pairing management —
+remove one device without touching the rest · incremental transfers · manual IP fallback when
+multicast is blocked.
 
 **On the phone** — hydration, meal, evening check-in and refill reminders · weekly trend charts ·
 unit conversion · a small celebration when you hit a goal · earlier ideas grouped by day, not just
@@ -102,7 +104,7 @@ person from the journal's suggestion list, and keeps them deleted on every synce
 **Everywhere** — per-category streaks · daily goals as `X/Y` progress · one-tap quick buttons for
 routine amounts · star ratings, sliders and tag input with recall · a consistent pastel colour
 system per category · split sleep logging — save a bedtime in the evening, complete the same night
-with your wake-up in the morning.
+with your wake-up in the morning · entries encrypted at rest on both platforms.
 
 **Installing and updating** — a new Setup installs over the old one and keeps your data; the desktop
 app snapshots its database on the first launch after any version change and keeps the last five
@@ -176,8 +178,8 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 [Releases page](https://github.com/Redrum624/wellness-companion/releases/latest) and run it. One
 file contains the app, the Visual C++ runtime, and the Android package.
 
-**4. Pair them.** Open the desktop app — its sidebar shows an eight-character code. On the phone,
-tap **🔄 Sync**, enter the code, tap **Pair**, then **Sync**. Once only.
+**4. Pair them.** Open the desktop app and click **Pair a device** in its sidebar for a one-time
+code. On the phone, tap **🔄 Sync**, enter the code, tap **Pair**, then **Sync**. Once per device.
 
 ### Updating
 
@@ -194,9 +196,11 @@ database by an update — the snapshot is there for the case where something lat
 
 ## Pairing the phone with the PC
 
-Open the desktop app first — its sidebar shows an eight-character **pairing code**. On the phone,
-tap **🔄 Sync**, type the code in, tap **Pair**, then **Sync**. You do this once; the phone
-remembers it.
+Open the desktop app first, then click **Pair a device** in its sidebar for a one-time **pairing
+code** — 33 characters, grouped with dashes so it's easy to type. On the phone, tap **🔄 Sync**,
+type the code in, tap **Pair**, then **Sync**. You do this once per device; the phone remembers it,
+and the desktop sidebar lists every paired device with its own **Remove**, so losing one phone
+doesn't mean forgetting the rest.
 
 If mDNS discovery fails — some networks block multicast — type the PC's address in the field below
 instead (`192.168.1.42:9847`).
@@ -208,12 +212,14 @@ instead (`192.168.1.42:9847`).
 </p>
 <p align="center"><sub>Left: a first sync pulling nine weeks of history. Right: what hitting a daily goal looks like.</sub></p>
 
-**The pairing code is access control, not encryption.** It stops other devices on your network from
-reading or writing your data. It does not hide the contents from someone who can already observe
-your LAN traffic: sync runs over plain `ws://`, and neither database is encrypted at rest. Nor does
-it protect the phone itself — the released build is debug-signed, so physical USB access to an
-unlocked device is enough to read the database. Use it on networks and devices you trust;
-[SECURITY.md](SECURITY.md) has the full picture.
+**The pairing code is key material, not just access control.** It delivers a 128-bit secret that
+both authenticates your phone to your desktop and derives the session keys for an encrypted
+channel (ephemeral ECDH + AES-256-GCM) — someone watching your LAN traffic sees only ciphertext,
+and both databases are encrypted at rest on disk. It doesn't defend against everything: anyone who
+reads the code off your screen while you're pairing can pair a device of their own, and the
+released phone build is still debug-signed, so USB access to an unlocked phone can still reach the
+app's live data through its own debug hooks even with the database file encrypted. Use it on
+networks and devices you trust; [SECURITY.md](SECURITY.md) has the full residual-risk picture.
 ## Building from source
 
 <details>
@@ -327,8 +333,9 @@ grant.
 <details>
 <summary>What actually happens on the wire (click to expand)</summary>
 
-The desktop advertises itself over mDNS and refuses to serve or accept anything until the phone
-proves it knows the pairing code.
+The desktop advertises itself over mDNS. Every connection runs a fresh ECDH key exchange
+authenticated by the paired device's 128-bit key before anything but the handshake itself is sent —
+there is no plaintext step to skip.
 
 ```mermaid
 sequenceDiagram
@@ -336,22 +343,25 @@ sequenceDiagram
     participant D as Desktop (port 9847)
     D-->>P: mDNS: "wellness-companion-sync"
     P->>D: connect
-    D->>P: hello { requiresAuth: true }
-    Note over P,D: nothing has been sent yet
-    P->>D: auth { code }
-    alt code is wrong
-        D->>P: auth_failed (5 attempts, then disconnect)
-    else code is right
-        D->>P: auth_ok
+    D->>P: hello { nonce_s }
+    P->>D: hs1 { pub_c, nonce_c }
+    Note over P,D: only ephemeral key material sent so far
+    D->>P: hs2 { pub_s, mac_s }
+    P->>D: hs3 { mac_c }
+    alt MAC mismatch (unknown or wrong device key)
+        D-->>P: close 4006 repair_required
+    else authenticated
+        Note over P,D: channel established — everything below is an AES-256-GCM record
         P->>D: full_sync { entries changed since last sync }
         D->>P: full_sync_response { entries you don't have }
         Note over P,D: last-write-wins on modified_at
     end
 ```
 
-Only entries changed since the last successful sync are sent, in batches, so a long history doesn't
-mean a huge transfer. Conflicts resolve last-write-wins on `modified_at`. The `hello` frame carries
-a protocol version; if you change the message shape, bump it and handle the older value on both
-sides.
+Text frames carry only the handshake; every application message after `hs3` is a binary
+AES-256-GCM record. Only entries changed since the last successful sync are sent, in batches, so a
+long history doesn't mean a huge transfer. Conflicts resolve last-write-wins on `modified_at`. A
+peer still speaking the old plaintext protocol gets a tombstone reply and the connection is closed
+before any row moves.
 
 </details>
