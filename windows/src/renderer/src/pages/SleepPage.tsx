@@ -72,7 +72,7 @@ export default function SleepPage() {
   }
 
   const saveBedtime = () =>
-    persist(complete ? buildComplete() : { bedtime, wakeTime: null, wakeUps, totalHours: 0, qualityScore: 0 })
+    persist(complete ? buildComplete() : { bedtime, wakeUps, totalHours: 0, qualityScore: 0 })
 
   const saveWakeUp = () => persist(buildComplete())
 

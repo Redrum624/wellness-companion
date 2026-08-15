@@ -12,6 +12,10 @@ export function initDatabase(): void {
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
   createTables()
+  // Guard: this runs BEFORE backupOnVersionChange(), so today's additive-only
+  // migrations are safe, but a future DESTRUCTIVE migration must snapshot the
+  // db before migrating, not rely on the post-migration backup below to
+  // protect it (see backupOnVersionChange's doc comment).
   migrateTables()
   backupOnVersionChange(hadExistingDb)
 }
@@ -95,10 +99,15 @@ let pendingBackup: Promise<void> | null = null
 
 /**
  * Update safety net: the first launch after an app update snapshots the
- * database before normal use resumes, so a bad migration or broken build can
- * never take the only copy of the user's data with it. Uses SQLite's online
- * backup API (safe under WAL). The version marker is only advanced after a
- * successful backup, so a failed backup retries on the next launch.
+ * database before normal use resumes, so a broken build or bad data writes
+ * introduced by the new version can never take the only copy of the user's
+ * data with it. This runs AFTER migrateTables(), so it does NOT protect
+ * against the migration itself — a destructive migration would already have
+ * mutated the live db by the time this snapshot is taken. Harmless today
+ * because all migrations are additive (see the guard note on the
+ * migrateTables() call in initDatabase). Uses SQLite's online backup API
+ * (safe under WAL). The version marker is only advanced after a successful
+ * backup, so a failed backup retries on the next launch.
  *
  * Everything past the fresh-install early return is wrapped in try/catch:
  * this runs inside initDatabase(), which runs inside the un-caught
