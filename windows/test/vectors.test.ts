@@ -19,6 +19,11 @@ test('fixture has all sections', () => {
   expect(vectors.offcurve_spki.length).toBeGreaterThan(0)
   expect(vectors.th_wire_bytes.expected_th).toMatch(/^[0-9a-f]{64}$/)
   expect(vectors.th_wire_bytes.elements_hex.length).toBe(3)
+  // The pairing code is encoded on the desktop and decoded on the phone, so
+  // its format is pinned here too.
+  expect(vectors.pairing_code.code_length).toBe(33)
+  expect(vectors.pairing_code.grouping).toEqual([5, 5, 5, 5, 5, 5, 3])
+  expect(vectors.pairing_code.vectors.length).toBeGreaterThanOrEqual(3)
 })
 
 describe('RFC 5869 HKDF-SHA256 vectors (Node crypto.hkdfSync)', () => {

@@ -394,6 +394,104 @@ print("[ok] th_wire_bytes constructed: uint32BE-length-prefixed(hello, hs1, pub_
 
 
 # ---------------------------------------------------------------------------
+# Section 7: pairing code (spec §2.2 as amended 2026-08-15)
+#
+# The user transcribes ONE string. It carries the lookup handle AND the secret:
+#
+#   bytes    : keyId(4) || secret(16)              = 20 bytes, in that order
+#   number   : big-endian integer over those 20 bytes
+#   alphabet : "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   31 glyphs, index 0..30,
+#              excluding 0/O/1/I/L (the pairs people misread off a screen)
+#   encode   : base-31, MOST significant glyph first, LEFT-PADDED to exactly
+#              33 glyphs (31^33 > 2^160, so 20 bytes always fit and the length
+#              is fixed -- the all-zero value renders as 33 'A's, never "").
+#   display  : grouped 5-5-5-5-5-5-3 with '-' separators -> 39 chars on screen
+#   decode   : strip [\s-], upper-case, require exactly 33 glyphs, accumulate
+#              n = n*31 + index(ch), REJECT n >= 2**160, render as 20 bytes;
+#              keyId = bytes[0:4] as 8 LOWERCASE hex (exactly the `hs1` field),
+#              secret = bytes[4:20] (16 bytes / 128 bits -- that floor is fixed;
+#              keyId carries no entropy requirement and may collide harmlessly).
+#
+# Encoded on the desktop, decoded on the phone: a divergence here strands the
+# user mid-pairing with no diagnostic, which is exactly what this fixture is
+# for. Implemented independently below (plain int arithmetic) and asserted
+# against in Jest and JUnit.
+# ---------------------------------------------------------------------------
+PAIRING_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+PAIRING_CODE_LENGTH = 33
+PAIRING_KEY_ID_BYTES = 4
+PAIRING_SECRET_BYTES = 16
+PAIRING_GROUP = 5
+assert len(PAIRING_ALPHABET) == 31
+assert 31 ** PAIRING_CODE_LENGTH > 2 ** ((PAIRING_KEY_ID_BYTES + PAIRING_SECRET_BYTES) * 8)
+
+
+def encode_pairing_code(key_id_hex: str, secret_hex: str) -> tuple:
+    assert len(key_id_hex) == PAIRING_KEY_ID_BYTES * 2
+    assert len(secret_hex) == PAIRING_SECRET_BYTES * 2
+    n = int(key_id_hex + secret_hex, 16)
+    glyphs = []
+    for _ in range(PAIRING_CODE_LENGTH):
+        glyphs.append(PAIRING_ALPHABET[n % 31])
+        n //= 31
+    assert n == 0, "20 bytes overflowed 33 glyphs"
+    bare = "".join(reversed(glyphs))
+    groups = [bare[i:i + PAIRING_GROUP] for i in range(0, len(bare), PAIRING_GROUP)]
+    return "-".join(groups), bare
+
+
+def decode_pairing_code(code: str) -> tuple:
+    cleaned = "".join(ch for ch in code.upper() if not ch.isspace() and ch != "-")
+    assert len(cleaned) == PAIRING_CODE_LENGTH, f"expected {PAIRING_CODE_LENGTH} glyphs"
+    n = 0
+    for ch in cleaned:
+        n = n * 31 + PAIRING_ALPHABET.index(ch)
+    assert n < 2 ** ((PAIRING_KEY_ID_BYTES + PAIRING_SECRET_BYTES) * 8), "code out of range"
+    raw = n.to_bytes(PAIRING_KEY_ID_BYTES + PAIRING_SECRET_BYTES, "big")
+    return raw[:PAIRING_KEY_ID_BYTES].hex(), raw[PAIRING_KEY_ID_BYTES:].hex()
+
+
+PAIRING_CASES = [
+    # A "typical" code: distinct keyId, sequential secret bytes.
+    ("deadbeef", bytes(range(16)).hex()),
+    # All zeroes: proves the fixed-width left-pad (a naive encoder emits "").
+    ("00" * PAIRING_KEY_ID_BYTES, "00" * PAIRING_SECRET_BYTES),
+    # All ones: the largest 20-byte value, proves 33 glyphs never overflow.
+    ("ff" * PAIRING_KEY_ID_BYTES, "ff" * PAIRING_SECRET_BYTES),
+]
+
+pairing_vectors = []
+for key_id_hex, secret_hex in PAIRING_CASES:
+    grouped, bare = encode_pairing_code(key_id_hex, secret_hex)
+    assert len(bare) == PAIRING_CODE_LENGTH
+    assert [len(g) for g in grouped.split("-")] == [5, 5, 5, 5, 5, 5, 3]
+    # Round-trip through the normalization the phone applies: dashes stripped,
+    # arbitrary case, surrounding whitespace.
+    for variant in (grouped, bare, bare.lower(), f"  {grouped.lower()}  "):
+        assert decode_pairing_code(variant) == (key_id_hex, secret_hex), f"round-trip failed for {variant!r}"
+    pairing_vectors.append(
+        {
+            "keyId_hex": key_id_hex,
+            "secret_hex": secret_hex,
+            "code_grouped": grouped,
+            "code_bare": bare,
+        }
+    )
+
+pairing_code = {
+    "alphabet": PAIRING_ALPHABET,
+    "code_length": PAIRING_CODE_LENGTH,
+    "key_id_bytes": PAIRING_KEY_ID_BYTES,
+    "secret_bytes": PAIRING_SECRET_BYTES,
+    "grouping": [5, 5, 5, 5, 5, 5, 3],
+    "byte_order": "keyId||secret, big-endian base31, most-significant glyph first",
+    "decode_normalization": "strip [\\s-], upper-case, require 33 glyphs, reject n >= 2^160",
+    "vectors": pairing_vectors,
+}
+print(f"[ok] pairing_code: {len(pairing_vectors)} vectors encoded and round-tripped")
+
+
+# ---------------------------------------------------------------------------
 # Assemble and write
 # ---------------------------------------------------------------------------
 out = {
@@ -404,6 +502,7 @@ out = {
     "ecdh_leading_zero_x": ecdh_leading_zero_x,
     "offcurve_spki": offcurve_spki_b64,
     "th_wire_bytes": th_wire_bytes,
+    "pairing_code": pairing_code,
 }
 
 os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)

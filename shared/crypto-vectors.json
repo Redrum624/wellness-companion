@@ -67,5 +67,42 @@
       "4d466b77457759484b6f5a497a6a3043415159494b6f5a497a6a30444151634451674145556f7a5051786a74456f4a554767356c632b4971796d4652682b6a5943736c332f6b5a4d6f2b47545759596b345476727069723378523879475a484c716376744441552f6e6a3671615a37556a56706964524f3350773d3d"
     ],
     "expected_th": "e6984b7c7f0187adb9a8a3d4a25c386800718a874793e5a79ed428d365a0c8a5"
+  },
+  "pairing_code": {
+    "alphabet": "ABCDEFGHJKMNPQRSTUVWXYZ23456789",
+    "code_length": 33,
+    "key_id_bytes": 4,
+    "secret_bytes": 16,
+    "grouping": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      3
+    ],
+    "byte_order": "keyId||secret, big-endian base31, most-significant glyph first",
+    "decode_normalization": "strip [\\s-], upper-case, require 33 glyphs, reject n >= 2^160",
+    "vectors": [
+      {
+        "keyId_hex": "deadbeef",
+        "secret_hex": "000102030405060708090a0b0c0d0e0f",
+        "code_grouped": "CPR38-KAHBY-4EBBB-QPG9N-B4WFR-HXTY9-NNT",
+        "code_bare": "CPR38KAHBY4EBBBQPG9NB4WFRHXTY9NNT"
+      },
+      {
+        "keyId_hex": "00000000",
+        "secret_hex": "00000000000000000000000000000000",
+        "code_grouped": "AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAA",
+        "code_bare": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      {
+        "keyId_hex": "ffffffff",
+        "secret_hex": "ffffffffffffffffffffffffffffffff",
+        "code_grouped": "C2WKA-PKKVS-EP8WK-RHFF8-6M5EC-22VFT-BBA",
+        "code_bare": "C2WKAPKKVSEP8WKRHFF86M5EC22VFTBBA"
+      }
+    ]
   }
 }

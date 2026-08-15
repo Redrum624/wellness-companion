@@ -285,6 +285,47 @@ describe('pairing code — ONE string carrying keyId(4) + secret(16)', () => {
     expect(() => C.encodePairingCode('deadbeef', Buffer.alloc(8))).toThrow() // short secret
   })
 
+  describe('matches the shared fixture (encoded on desktop, decoded on the phone)', () => {
+    const p = v.pairing_code
+
+    test('the codec constants match the pinned contract', () => {
+      expect(C.PAIRING_ALPHABET).toBe(p.alphabet)
+      expect(C.PAIRING_CODE_LENGTH).toBe(p.code_length)
+      expect(C.PAIRING_KEY_ID_BYTES).toBe(p.key_id_bytes)
+      expect(C.PAIRING_SECRET_BYTES).toBe(p.secret_bytes)
+      expect(C.PAIRING_CODE_BYTES).toBe(p.key_id_bytes + p.secret_bytes)
+    })
+
+    for (const t of p.vectors) {
+      test(`keyId ${t.keyId_hex} + secret ${t.secret_hex.slice(0, 8)}… -> ${t.code_grouped.slice(0, 11)}…`, () => {
+        // Encode side (this is the side the desktop owns).
+        const code = C.encodePairingCode(t.keyId_hex, H(t.secret_hex))
+        expect(code).toBe(t.code_grouped)
+        expect(code.replace(/-/g, '')).toBe(t.code_bare)
+        expect(code.split('-').map((g) => g.length)).toEqual(p.grouping)
+
+        // Decode side (this is the side the phone owns — same normalization).
+        for (const variant of [
+          t.code_grouped,
+          t.code_bare,
+          t.code_bare.toLowerCase(),
+          `  ${t.code_grouped.toLowerCase()}  `
+        ]) {
+          const decoded = C.decodePairingCode(variant)
+          expect(decoded.keyId).toBe(t.keyId_hex)
+          expect(hex(decoded.secret)).toBe(t.secret_hex)
+        }
+      })
+    }
+
+    test('the pinned codes only use alphabet glyphs and are exactly 33 long', () => {
+      for (const t of p.vectors) {
+        expect(t.code_bare.length).toBe(p.code_length)
+        for (const ch of t.code_bare) expect(p.alphabet).toContain(ch)
+      }
+    })
+  })
+
   test('the secret is still 128 bits — the floor did not move', () => {
     const seen = new Set<string>()
     for (let i = 0; i < 100; i++) seen.add(hex(C.randomPairingSecret()))
