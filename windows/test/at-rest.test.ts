@@ -434,7 +434,7 @@ describe('migrateToEncryptedIfNeeded (spec §4.4)', () => {
     expect(existsSync(bakPath)).toBe(false)
   })
 
-  test('a swap that fails AND cannot restore keeps the tmp for recovery (finding 1)', () => {
+  test('a swap that fails AND cannot restore reports database_missing and keeps BOTH survivors', () => {
     const dbPath = join(dir, 'wellness.db')
     const tmpPath = join(dir, 'wellness.db.premigration.tmp')
     const bakPath = join(dir, 'wellness.db.plaintext.bak')
@@ -447,13 +447,63 @@ describe('migrateToEncryptedIfNeeded (spec §4.4)', () => {
     }
 
     const { open } = fakeOpener()
-    expect(DB.migrateToEncryptedIfNeeded(dbPath, key, open, rename).status).toBe('failed')
+    const result = DB.migrateToEncryptedIfNeeded(dbPath, key, open, rename)
 
-    // wellness.db is gone, so the encrypted working copy must NOT be deleted —
-    // it is what recoverInterruptedSwap() picks up on the next launch.
+    // Distinct from 'failed': there is no usable database at dbPath, so the
+    // caller must NOT reopen (and therefore create) anything there.
+    expect(result.status).toBe('database_missing')
+    expect(result.reason).toContain('premigration')
+
     expect(existsSync(dbPath)).toBe(false)
     expect(existsSync(tmpPath)).toBe(true)
     expect(existsSync(bakPath)).toBe(true)
+    expect(readFake(tmpPath)).toEqual({ rows: 9, keyHex: key.toString('hex') })
+    expect(readFake(bakPath).rows).toBe(9)
+  })
+
+  test('the launch AFTER a database_missing swap recovers instead of starting empty', () => {
+    const dbPath = join(dir, 'wellness.db')
+    const tmpPath = join(dir, 'wellness.db.premigration.tmp')
+    const bakPath = join(dir, 'wellness.db.plaintext.bak')
+    writePlainDb(dbPath, 314)
+
+    const rename: DB.RenameFn = (from, to) => {
+      if (from === tmpPath && to === dbPath) throw new Error('simulated swap failure')
+      if (from === bakPath && to === dbPath) throw new Error('simulated restore failure')
+      renameSync(from, to)
+    }
+    expect(DB.migrateToEncryptedIfNeeded(dbPath, key, fakeOpener().open, rename).status).toBe(
+      'database_missing'
+    )
+
+    // Next launch: recovery runs BEFORE any open and reinstates the encrypted
+    // copy with every row intact — no empty database is ever created.
+    const recovery = DB.recoverInterruptedSwap(dbPath, key, fakeOpener().open)
+    expect(recovery).toMatchObject({ status: 'recovered', from: 'premigration', rows: 314 })
+    expect(readFake(dbPath)).toEqual({ rows: 314, keyHex: key.toString('hex') })
+    expect(existsSync(bakPath)).toBe(true)
+  })
+
+  test('the .plaintext.bak is REPLACED by the rename, never pre-deleted', () => {
+    const dbPath = join(dir, 'wellness.db')
+    const bakPath = join(dir, 'wellness.db.plaintext.bak')
+    writePlainDb(dbPath, 21)
+    writePlainDb(bakPath, 1) // a previous cycle
+
+    // Assert the old backup is still on disk at the moment the rename happens:
+    // a pre-delete would have removed it and widened the window.
+    let bakPresentAtRename: boolean | null = null
+    const rename: DB.RenameFn = (from, to) => {
+      if (from === dbPath && to === bakPath) bakPresentAtRename = existsSync(bakPath)
+      renameSync(from, to)
+    }
+
+    expect(DB.migrateToEncryptedIfNeeded(dbPath, key, fakeOpener().open, rename).status).toBe(
+      'migrated'
+    )
+    expect(bakPresentAtRename).toBe(true)
+    // One cycle kept, and it is the database that was just migrated.
+    expect(readFake(bakPath).rows).toBe(21)
   })
 
   test('a stale .premigration.tmp from a killed run is replaced, not appended to', () => {
@@ -479,6 +529,24 @@ describe('recoverInterruptedSwap (spec §4.4 amended)', () => {
     const { open, opened } = fakeOpener()
     expect(DB.recoverInterruptedSwap(dbPathOf(), key, open).status).toBe('not_needed')
     expect(opened).toHaveLength(0)
+  })
+
+  test('a ZERO-BYTE wellness.db does not count as a database — recovery still runs', () => {
+    // The artifact of an interrupted create. Early-returning on existsSync alone
+    // would skip recovery forever and leave the user staring at an empty app.
+    writeFileSync(dbPathOf(), Buffer.alloc(0))
+    writeCipherDb(`${dbPathOf()}.premigration.tmp`, 831, key.toString('hex'))
+
+    const result = DB.recoverInterruptedSwap(dbPathOf(), key, fakeOpener().open)
+
+    expect(result).toMatchObject({ status: 'recovered', from: 'premigration', rows: 831 })
+    expect(readFake(dbPathOf())).toEqual({ rows: 831, keyHex: key.toString('hex') })
+  })
+
+  test('a zero-byte wellness.db with NO survivors is left alone (aborted first run)', () => {
+    writeFileSync(dbPathOf(), Buffer.alloc(0))
+    expect(DB.recoverInterruptedSwap(dbPathOf(), key, fakeOpener().open).status).toBe('not_needed')
+    expect(existsSync(dbPathOf())).toBe(true)
   })
 
   test('a genuine fresh install (nothing on disk) is not mistaken for a crash', () => {
