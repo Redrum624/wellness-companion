@@ -63,6 +63,15 @@ sensitive data.
   before the plaintext copy is touched.
 - **What this defends: a cold copy.** A lost or stolen device imaged offline, a lost backup, an
   `adb pull` run without a live unlocked app — in those cases, what's on disk is ciphertext.
+- **The pre-encryption backup is the exception, and it is permanent until you delete it.** The
+  one-time migration keeps `wellness.db.plaintext.bak` — your entire pre-migration history, in
+  plaintext — right beside the now-encrypted database, on both platforms:
+  `%APPDATA%\wellness-companion\wellness.db.plaintext.bak` on the PC, and the app's private
+  database directory on the phone (alongside `wellness.db`, reachable via `adb pull` or `run-as` on
+  a debug build). Nothing prunes it automatically on either platform — it exists so a failed
+  migration can never lose data, not as a temporary artifact — so it sits there in plaintext
+  indefinitely unless you remove it yourself. Once you've confirmed your data made it across the
+  upgrade intact, delete that file.
 - **What this does NOT defend: malware or a shell running as you.** At-rest encryption does not
   protect against code running as your own Windows account (DPAPI unwraps for that account by
   design) or as the app's own UID on Android — including `run-as` access on a **debug-signed**
@@ -72,13 +81,22 @@ sensitive data.
 - **Desktop backups are tied to your Windows account.** The wrapped key only unwraps for the
   Windows user account that created it, so `wellness.db` backups are not portable across accounts
   or machines without separate export tooling.
-- **Key-loss recovery is manual.** If the wrapped key ever becomes unusable (a corrupted DPAPI
-  profile, a `wellness.key` copied to another machine, an AndroidKeyStore key invalidated by the
-  OS), both apps fail closed with an on-screen message rather than silently starting from an empty
-  database, naming the file that still holds your data — `wellness.db.premigration.tmp` or
-  `wellness.db.plaintext.bak` on the desktop, and on Android a preserved `wellness.db.keylost*.bak`
-  copy if the key is lost after migration already completed. There is no in-app recovery screen
-  yet: getting the data back is a manual file operation, not a button.
+- **Key-loss recovery is manual, and the two platforms behave differently — neither has an in-app
+  recovery screen yet, so getting the data back is always a manual file operation, not a button.**
+  If the wrapped key ever becomes unusable (a corrupted DPAPI profile, a `wellness.key` copied to
+  another machine, an AndroidKeyStore key invalidated by the OS):
+  - **Desktop** fails closed with an on-screen dialog rather than silently starting from an empty
+    database, naming the file that still holds your data — `wellness.db.premigration.tmp` or
+    `wellness.db.plaintext.bak`.
+  - **Android** does not show an in-app message at all. If no pre-migration backup survives, the
+    key failure is raised inside a Hilt provider (`error(...)` in `AppModule.kt`), which crashes
+    the process — you see the OS's generic "Wellness Companion keeps stopping" dialog, and the
+    file names that would explain what happened are only in `adb logcat`, not on screen. If a
+    `wellness.db.plaintext.bak` from the original migration *does* still survive, Android does
+    **not** fail closed at all: it silently rolls back to that pre-migration snapshot, mints a
+    fresh key, and re-encrypts under it — so the app keeps running, but any entries written after
+    the original migration and before the key loss are gone without a warning. An in-app error
+    screen, and a warning before that silent rollback, are known follow-ups.
 
 ### Signing
 

@@ -24,7 +24,10 @@ All notable changes to Wellness Companion are documented here.
   and the desktop sidebar lists every paired device with a last-seen time and its own **Remove**,
   so revoking one phone doesn't mean forgetting the rest. A **Forget all devices** button (below
   the paired-devices list, destructive styling, two-click confirmation) revokes every phone at once
-  via `regeneratePairingToken`, for a broader-compromise last resort.
+  via `regeneratePairingToken`, for a broader-compromise last resort. **Upgrading users must
+  re-pair once**: the old access code is incompatible with `wc-sync/4` by design, so after
+  updating both apps, open the desktop sidebar, click **Pair a device**, and type the code into
+  the phone — same as first-time setup.
   Affects: `windows/src/renderer/src/components/Sidebar.tsx`, `windows/src/preload/index.ts`,
   `windows/src/main/sync-server.ts`, `windows/src/main/database.ts`.
 - **Encrypted local databases, on both platforms, with non-bricking migration.** The desktop
@@ -32,8 +35,10 @@ All notable changes to Wellness Companion are documented here.
   separate `wellness.key`) and the phone's Room database (SQLCipher, key wrapped by a
   non-exportable AndroidKeyStore AES-GCM key) are now ciphertext on disk. An existing plaintext
   database migrates on a copy, is verified under the new key, then swaps in — keeping
-  `wellness.db.plaintext.bak` — and either platform fails closed with an on-screen message naming
-  the recovery files rather than ever starting from an empty database. Affects:
+  `wellness.db.plaintext.bak` — rather than ever starting from an empty database. Desktop fails
+  closed with an on-screen dialog naming the recovery files; Android's key-loss path differs (no
+  in-app message yet, and it silently rolls back to the pre-migration backup when one survives) —
+  see SECURITY.md for the accurate per-platform behavior. Affects:
   `windows/src/main/database.ts`, `windows/package.json`, `android/app/build.gradle.kts`,
   `android/.../di/AppModule.kt`, new `android/.../security/DbKeyManager.kt`, new
   `android/.../data/local/DbEncryptionMigrator.kt`.

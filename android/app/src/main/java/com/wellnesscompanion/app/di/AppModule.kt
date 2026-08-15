@@ -29,6 +29,35 @@ private const val TAG = "AppModule"
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
+    /**
+     * I6 (post-review fix): a single unwrap exception must not be treated as
+     * permanent key loss. `DbKeyManager`'s own doc on [mintFreshPassphrase]
+     * already flags that the failure "may be transient (the Keystore alias
+     * briefly unavailable, a locked-device hiccup)" -- but before this,
+     * `provideDatabase` acted on the very first exception, so one transient
+     * `KeyStoreException` silently reverted the user to migration-era data
+     * via `recoverFromLostKey`. Retry a couple of times with a short backoff
+     * before letting the caller treat the failure as real key loss. Every
+     * existing guarantee is untouched: this only decides whether
+     * `recoverFromLostKey` runs at all, never how it behaves.
+     */
+    private fun getPassphraseWithRetry(context: Context): ByteArray {
+        val backoffMs = longArrayOf(150, 300)
+        var lastError: Exception? = null
+        for (attempt in 0..backoffMs.size) {
+            try {
+                return DbKeyManager.getOrCreatePassphrase(context)
+            } catch (e: Exception) {
+                lastError = e
+                if (attempt < backoffMs.size) {
+                    Log.w(TAG, "Passphrase unwrap failed (attempt ${attempt + 1}), retrying: ${e.message}")
+                    Thread.sleep(backoffMs[attempt])
+                }
+            }
+        }
+        throw lastError!!
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): WellnessDatabase {
@@ -47,9 +76,9 @@ object AppModule {
         // closed with a message that names the backup rather than a raw
         // Keystore stack trace.
         val passphrase: ByteArray = try {
-            DbKeyManager.getOrCreatePassphrase(context)
+            getPassphraseWithRetry(context)
         } catch (e: Exception) {
-            Log.e(TAG, "Database key could not be unwrapped: ${e.message}")
+            Log.e(TAG, "Database key could not be unwrapped after retries: ${e.message}")
             val keyRecovery = DbEncryptionMigrator.recoverFromLostKey(dbFile)
             if (keyRecovery is DbEncryptionMigrator.RecoveryResult.Recovered) {
                 Log.i(TAG, "Recovered from a lost database key: ${keyRecovery.detail}")

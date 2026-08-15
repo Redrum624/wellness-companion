@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { NavLink } from 'react-router-dom'
 import { getCategoryByKey } from '../lib/categories'
@@ -64,6 +64,19 @@ export default function Sidebar() {
   // transcribe a second string.
   const [pairing, setPairing] = useState<string | null>(null)
   const [devices, setDevices] = useState<PairedDevice[]>([])
+  // The pairing code IS the phone's long-term secret once bound, and the
+  // sidebar stays mounted all session — so it must not linger on screen
+  // past the moment it stops being useful. Cleared on a successful pairing
+  // (below) and by this expiry timer (mirrors the server-side PAIRING_TTL_MS
+  // the `expiresAt` IPC field already carries), whichever comes first.
+  const pairingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearPairingTimer = (): void => {
+    if (pairingTimer.current) {
+      clearTimeout(pairingTimer.current)
+      pairingTimer.current = null
+    }
+  }
   // Sticky, unlike syncDetail: a version mismatch stays on screen until either
   // a sync actually succeeds (proof the phone was updated) or the app
   // restarts — a status line that keeps getting overwritten by the next
@@ -100,16 +113,27 @@ export default function Sidebar() {
         setVersionMismatch(false)
       }
       // A completed handshake updates lastSeen (and can bind a new device).
-      if (info.status === 'connected') refreshDevices()
+      if (info.status === 'connected') {
+        refreshDevices()
+        // Pairing succeeded — the code has done its job. Clear it rather
+        // than let it sit on screen for the rest of the session.
+        clearPairingTimer()
+        setPairing(null)
+      }
     })
     return () => {
       alive = false
       unsub()
+      clearPairingTimer()
     }
   }, [])
 
   const pairDevice = (): void => {
-    window.sync.createPairing().then(({ code }) => setPairing(code))
+    window.sync.createPairing().then(({ code, expiresAt }) => {
+      setPairing(code)
+      clearPairingTimer()
+      pairingTimer.current = setTimeout(() => setPairing(null), Math.max(0, expiresAt - Date.now()))
+    })
   }
 
   const removeDevice = (deviceId: string): void => {
@@ -216,6 +240,10 @@ export default function Sidebar() {
               {pairing.split('-').map((group, i) => (
                 <span key={i}>{group}</span>
               ))}
+            </div>
+            <div style={{ fontSize: 9, color: '#3D326260', marginTop: 3, lineHeight: 1.4 }}>
+              This code is a secret — keep it off-screen from anyone nearby. It disappears once
+              your phone pairs.
             </div>
           </div>
         )}

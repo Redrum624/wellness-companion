@@ -207,6 +207,11 @@ Start Menu to update it."), and the phone side shows its own "update the desktop
 version is reversed. `install_phone_app.bat` also prints both apps' versions before installing so
 a mismatch is visible up front.
 
+**Re-pair once after updating.** The old pairing token is dead by design under `wc-sync/4` — after
+you've updated both apps, sync will not resume on its own. Open the desktop sidebar, click **Pair a
+device**, and type the code into the phone, same as first-time setup. This is a one-time step per
+device; you won't need to repeat it on the next update.
+
 #### Migrating an existing phone to a release-signed build
 
 A release-signed APK (see the signing callout under [Get the apps](#get-the-apps) above, or the

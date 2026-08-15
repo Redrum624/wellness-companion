@@ -321,15 +321,27 @@ function sanitizeLabel(value: unknown): string {
 /**
  * A failure on the PAIRING control plane — an unknown `keyId`, or a `mac_c`
  * that does not verify. This is the ONLY place the global backoff is read or
- * advanced.
+ * advanced — which makes it a throttle on failed attempts, not a gate in
+ * front of the handshake: `lockedOut` is only ever consulted here, and this
+ * function only runs once the lookup/MAC check has already failed. A
+ * connection presenting the correct `keyId` and a valid `mac_c` returns
+ * normally from `handleHs1`/`handleHs3` and never calls this function at
+ * all — so a correct guess that happens to arrive while a lockout is in
+ * effect still succeeds; the lockout does not block it. That is acceptable
+ * rather than a bug: the throttle is defense-in-depth layered on top of a
+ * 128-bit pairing secret, not the primary defense against guessing it.
+ * Landing the right 128 bits is already computationally infeasible before
+ * the lockout is ever consulted — the lockout's job is to slow down noisy or
+ * hostile scanning across many wrong guesses, not to add a hard stop that a
+ * correct answer could still slip past.
  *
- * Scope matters: the counter is persistent and global, so consulting it before
- * the key lookup meant a handful of bogus `hs1` frames from any host on the LAN
- * locked out EVERY handshake, including an already-paired phone presenting a
- * valid MAC — a free, persistent sync kill-switch. A device that proves it
- * holds the pairing secret is never refused because of unrelated noise; only
- * attempts that fail a key check are throttled (spec §2.8: "code/secret-scoped
- * failure counter").
+ * Scope matters too: the counter is persistent and global, so consulting it
+ * before the key lookup meant a handful of bogus `hs1` frames from any host on
+ * the LAN locked out EVERY handshake, including an already-paired phone
+ * presenting a valid MAC — a free, persistent sync kill-switch. A device that
+ * proves it holds the pairing secret is never refused because of unrelated
+ * noise; only attempts that fail a key check are throttled (spec §2.8:
+ * "code/secret-scoped failure counter").
  */
 function failPairingAttempt(conn: SyncConn, detail: string): void {
   const backoff = getBackoff()

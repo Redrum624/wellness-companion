@@ -192,6 +192,39 @@ if "!APK_SIGNING!"=="debug" (
     echo   [WARN] No android\keystore.properties - shipping the DEBUG-signed APK.
     echo          See docs\signing-guide.md to create a release keystore.
 )
+
+:: --- Version lockstep: app-version.txt (below) is printed by
+::     install_phone_app.bat as BOTH the desktop and the phone version, but
+::     the APK's real version comes from android\app\build.gradle.kts
+::     versionName, not from windows\package.json. If a release bumps one
+::     and forgets the other, the installer would print a false claim about
+::     the exact property the paired-upgrade banner exists to surface -- so
+::     verify the two agree before writing that file.
+set "GRADLE_KTS=%REPO_ROOT%\android\app\build.gradle.kts"
+set "APKVER="
+for /f "usebackq tokens=2 delims==" %%V in (`findstr /r /c:"versionName[ ]*=" "%GRADLE_KTS%"`) do (
+    set "RAW=%%~V"
+    set "RAW=!RAW: =!"
+    set "RAW=!RAW:"=!"
+    if not defined APKVER set "APKVER=!RAW!"
+)
+if not defined APKVER (
+    echo   [ERROR] Could not read "versionName" from %GRADLE_KTS%.
+    exit /b 1
+)
+if /I not "!APKVER!"=="!APPVER!" (
+    echo.
+    echo   ============================================================
+    echo     [ERROR] VERSION LOCKSTEP BROKEN
+    echo     windows\package.json  version : %APPVER%
+    echo     build.gradle.kts   versionName : !APKVER!
+    echo     install_phone_app.bat prints ONE version for both apps -
+    echo     bump both to match before building the installer.
+    echo   ============================================================
+    echo.
+    exit /b 1
+)
+echo   [OK] Version lockstep: desktop and phone both %APPVER%.
 :: Marker files staged into the installer by wellness_setup.iss, then read by
 :: install_phone_app.bat at %~dp0 (i.e. {app}) - never regenerated on the fly
 :: there, since the installed folder has no gradle/adb to derive them from.
