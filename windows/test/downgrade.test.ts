@@ -54,8 +54,18 @@ jest.mock('../src/main/database', () => {
       return rec
     },
     getBackoff: (): unknown => backoff,
+    // Mirrors the real policy's SHAPE (a few free attempts, then a lockout) so
+    // the scoping tests below are meaningful; the real thresholds are covered
+    // in device-keys.test.ts.
     bumpBackoff: (): unknown => {
-      backoff = { ...backoff, failures: backoff.failures + 1 }
+      const failures = backoff.failures + 1
+      const lockedOut = failures > 3
+      backoff = {
+        failures,
+        lockedUntil: lockedOut ? Date.now() + 60_000 : 0,
+        lockedOut,
+        lockedForMs: lockedOut ? 60_000 : 0
+      }
       return backoff
     },
     resetBackoff: (): void => void (backoff = {
@@ -333,9 +343,130 @@ describe('channel gate', () => {
     expect(textFrames(ws).length).toBe(1) // hello only
   })
 
-  test('the pairing lockout blocks the handshake before any key lookup', () => {
-    dbMock.__setBackoff({ failures: 9, lockedUntil: Date.now() + 60_000, lockedOut: true, lockedForMs: 60_000 })
-    const { ws, conn } = pairedSocket()
+  test('a lockout refuses further UNKNOWN-key attempts without evaluating them', () => {
+    dbMock.__setBackoff({
+      failures: 9,
+      lockedUntil: Date.now() + 60_000,
+      lockedOut: true,
+      lockedForMs: 60_000
+    })
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
+    const eph = X.generateEphemeral()
+    sync.handleFrame(
+      conn,
+      text({
+        type: 'hs1',
+        proto: 'x1',
+        keyId: 'unknown-key',
+        deviceId: 'attacker',
+        pub_c: eph.publicSpkiB64,
+        nonce_c: randomBytes(32).toString('base64')
+      }),
+      false
+    )
+    expect(lastText(ws).code).toBe('locked_out')
+    expect(lastText(ws).retryAfterMs).toBeGreaterThan(0)
+    expect(ws.closes.slice(-1)[0].code).toBe(4002)
+    // Refused without evaluating: the counter is not advanced any further.
+    expect(dbMock.getBackoff().failures).toBe(9)
+  })
+})
+
+describe('pairing lockout is scoped to the pairing path (not the whole handshake)', () => {
+  function noiseAttempt(keyId: string): void {
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
+    const eph = X.generateEphemeral()
+    sync.handleFrame(
+      conn,
+      text({
+        type: 'hs1',
+        proto: 'x1',
+        keyId,
+        deviceId: 'attacker-device',
+        pub_c: eph.publicSpkiB64,
+        nonce_c: randomBytes(32).toString('base64')
+      }),
+      false
+    )
+  }
+
+  function bindDevice(): Buffer {
+    const secret = X.randomPairingSecret()
+    dbMock.__setDeviceKey(DEVICE_ID, {
+      keyId: KEY_ID,
+      secret_b64: secret.toString('base64'),
+      label: 'Pixel 7',
+      created: 1,
+      lastSeen: 1
+    })
+    return secret
+  }
+
+  test('LAN noise cannot lock out an already-paired phone', () => {
+    const secret = bindDevice()
+    // Any host on the LAN sprays bogus keyIds — enough to trip the lockout.
+    for (let i = 0; i < 6; i++) noiseAttempt(`bogus-${i}`)
+    expect(dbMock.getBackoff().lockedOut).toBe(true)
+
+    // The correctly-keyed phone still completes hs3 and gets its channel.
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
+    completeHandshake(ws, conn, secret)
+    expect(conn.channelEstablished).toBe(true)
+    // A successful pairing clears the lockout the noise created.
+    expect(dbMock.getBackoff().lockedOut).toBe(false)
+  })
+
+  test('the throttle still bites the attempts that caused it', () => {
+    bindDevice()
+    for (let i = 0; i < 4; i++) noiseAttempt(`bogus-${i}`)
+    expect(dbMock.getBackoff().lockedOut).toBe(true)
+
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
+    const eph = X.generateEphemeral()
+    sync.handleFrame(
+      conn,
+      text({
+        type: 'hs1',
+        proto: 'x1',
+        keyId: 'bogus-99',
+        deviceId: 'attacker-device',
+        pub_c: eph.publicSpkiB64,
+        nonce_c: randomBytes(32).toString('base64')
+      }),
+      false
+    )
+    expect(lastText(ws).code).toBe('locked_out')
+  })
+
+  test('a malformed ephemeral key from a KNOWN keyId does not touch the backoff', () => {
+    const v = require('../../shared/crypto-vectors.json')
+    bindDevice()
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
+    sync.handleFrame(
+      conn,
+      text({
+        type: 'hs1',
+        proto: 'x1',
+        keyId: KEY_ID,
+        deviceId: DEVICE_ID,
+        pub_c: v.offcurve_spki,
+        nonce_c: randomBytes(32).toString('base64')
+      }),
+      false
+    )
+    expect(conn.channelEstablished).toBe(false)
+    expect(dbMock.getBackoff().failures).toBe(0)
+  })
+
+  test('a mac_c failure DOES advance the backoff', () => {
+    bindDevice()
+    const ws = fakeSocket()
+    const conn = sync.createConnection(ws as any)
     const eph = X.generateEphemeral()
     sync.handleFrame(
       conn,
@@ -349,8 +480,9 @@ describe('channel gate', () => {
       }),
       false
     )
-    expect(lastText(ws).code).toBe('locked_out')
-    expect(conn.channelEstablished).toBe(false)
+    sync.handleFrame(conn, text({ type: 'hs3', mac_c: randomBytes(32).toString('base64') }), false)
+    expect(dbMock.getBackoff().failures).toBe(1)
+    expect(lastText(ws)).toEqual({ type: 'error', code: 'repair_required' })
   })
 })
 

@@ -190,6 +190,44 @@ print("[ok] gcm_record vector generated and round-tripped")
 
 
 # ---------------------------------------------------------------------------
+# Section 3b: GCM record vector for the SERVER->CLIENT direction
+# Same framing rule, the other direction constant. Without this, `DIR_S2C`
+# ("s2c\0") was pinned only by a literal inside the desktop's own test suite,
+# so a mirrored implementation could get the s2c constant wrong and only find
+# out at the cross-platform interop gate. The counter is deliberately NON-ZERO
+# here so the uint64 big-endian encoding is pinned in BOTH the nonce and the
+# AAD (the all-zero counter in Section 3 cannot distinguish BE from LE).
+# ---------------------------------------------------------------------------
+gcm_key_s2c = hashlib.sha256(b"gcm-record-fixture-key-s2c").digest()  # 32 bytes
+direction_s2c = bytes.fromhex("73326300")  # "s2c\0"
+counter_s2c = (1).to_bytes(8, "big")
+gcm_nonce_s2c = direction_s2c + counter_s2c
+assert len(gcm_nonce_s2c) == 12
+gcm_aad_s2c = bytes([0x01]) + counter_s2c
+assert len(gcm_aad_s2c) == 9
+gcm_plaintext_s2c = b'{"type":"push_ack","inserted":1,"updated":0,"rejected":0}'
+
+aesgcm_s2c = AESGCM(gcm_key_s2c)
+ct_tag_s2c = aesgcm_s2c.encrypt(gcm_nonce_s2c, gcm_plaintext_s2c, gcm_aad_s2c)
+assert len(ct_tag_s2c) == len(gcm_plaintext_s2c) + 16
+assert aesgcm_s2c.decrypt(gcm_nonce_s2c, ct_tag_s2c, gcm_aad_s2c) == gcm_plaintext_s2c
+
+# The two directions must not collide: different key AND different nonce.
+assert gcm_nonce_s2c != gcm_nonce
+assert gcm_key_s2c != gcm_key
+
+gcm_record_s2c = {
+    "key": gcm_key_s2c.hex(),
+    "nonce": gcm_nonce_s2c.hex(),
+    "aad": gcm_aad_s2c.hex(),
+    "counter": 1,
+    "plaintext": gcm_plaintext_s2c.hex(),
+    "ct_tag": ct_tag_s2c.hex(),
+}
+print("[ok] gcm_record_s2c vector generated and round-tripped")
+
+
+# ---------------------------------------------------------------------------
 # Section 4: P-256 ECDH keypair whose shared-secret X has a leading 0x00 byte
 # ---------------------------------------------------------------------------
 def gen_p256_keypair():
@@ -362,6 +400,7 @@ out = {
     "hkdf_rfc5869": hkdf_rfc5869,
     "handshake": handshake,
     "gcm_record": gcm_record,
+    "gcm_record_s2c": gcm_record_s2c,
     "ecdh_leading_zero_x": ecdh_leading_zero_x,
     "offcurve_spki": offcurve_spki_b64,
     "th_wire_bytes": th_wire_bytes,

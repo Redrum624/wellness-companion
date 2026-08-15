@@ -9,6 +9,11 @@ test('fixture has all sections', () => {
   expect(vectors.handshake.km).toMatch(/^[0-9a-f]{64}$/)
   expect(vectors.hkdf_rfc5869.length).toBeGreaterThanOrEqual(3)
   expect(vectors.gcm_record.ct_tag.length).toBeGreaterThan(vectors.gcm_record.plaintext.length)
+  // Both directions are pinned, so a mirrored implementation cannot get the
+  // s2c constant wrong and only discover it at the interop gate.
+  expect(vectors.gcm_record_s2c.nonce.slice(0, 8)).toBe('73326300')
+  expect(vectors.gcm_record.nonce.slice(0, 8)).toBe('63327300')
+  expect(vectors.gcm_record_s2c.counter).toBe(1)
   expect(vectors.ecdh_leading_zero_x.expected_ss).toMatch(/^00[0-9a-f]{62}$/)
   expect(typeof vectors.offcurve_spki).toBe('string')
   expect(vectors.offcurve_spki.length).toBeGreaterThan(0)

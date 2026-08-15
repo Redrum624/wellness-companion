@@ -60,6 +60,30 @@ const AUX_TABLES = {
 
 type AuxTable = keyof typeof AUX_TABLES
 
+// transport: ── close-code contract (mirrored by the phone) ─────────────────
+//
+// Every close code this server can emit, and what the phone must show for it.
+// The phone maps each to a specific, actionable string — never the generic
+// "Connection closed".
+//
+//   4001 pairing_changed   The desktop forgot this device ("Remove", or
+//                          "forget all devices"). Phone: user-gated re-pair.
+//   4002 locked_out        Refused without evaluating: too many failed pairing
+//                          attempts recently. The reply carries `retryAfterMs`.
+//                          Phone: "Try again in N minutes", keep the key.
+//   4003 too_many_conns    Connection cap reached. Phone: retry later.
+//   4005 update_required   A legacy v3 frame arrived. Nothing was validated and
+//                          no data moved. Phone: "Update the app."
+//   4006 repair_required   Unknown keyId, or a key whose secret does not match
+//                          (deliberately the SAME code for both, so neither
+//                          bricks). Phone: user-gated re-pair, KEEP the key
+//                          until the user completes a new pairing.
+//
+// Standard RFC 6455 codes are also used for protocol violations that carry no
+// user-facing meaning: 1002 (wrong channel / malformed frame), 1008 (record
+// failed its tag or counter check), 1009 (handshake frame over the 8 KB cap),
+// 1011 (internal error). The phone treats all of these as "sync failed, retry".
+//
 // transport: ── connection state machine ────────────────────────────────────
 
 /**
@@ -290,6 +314,40 @@ function sanitizeLabel(value: unknown): string {
     .join('')
 }
 
+/**
+ * A failure on the PAIRING control plane — an unknown `keyId`, or a `mac_c`
+ * that does not verify. This is the ONLY place the global backoff is read or
+ * advanced.
+ *
+ * Scope matters: the counter is persistent and global, so consulting it before
+ * the key lookup meant a handful of bogus `hs1` frames from any host on the LAN
+ * locked out EVERY handshake, including an already-paired phone presenting a
+ * valid MAC — a free, persistent sync kill-switch. A device that proves it
+ * holds the pairing secret is never refused because of unrelated noise; only
+ * attempts that fail a key check are throttled (spec §2.8: "code/secret-scoped
+ * failure counter").
+ */
+function failPairingAttempt(conn: SyncConn, detail: string): void {
+  const backoff = getBackoff()
+  if (backoff.lockedOut) {
+    // Already locked: refuse without evaluating, and do not advance further.
+    sendHandshake(conn, {
+      type: 'error',
+      code: 'locked_out',
+      retryAfterMs: backoff.lockedForMs
+    })
+    broadcastSyncStatus(
+      'error',
+      `Pairing locked for ${Math.ceil(backoff.lockedForMs / 60_000)} min after repeated failures`
+    )
+    return dropConnection(conn, X.CLOSE_TOO_MANY_ATTEMPTS, 'locked out')
+  }
+  bumpBackoff()
+  sendHandshake(conn, { type: 'error', code: 'repair_required' })
+  broadcastSyncStatus('error', detail)
+  return dropConnection(conn, X.CLOSE_REPAIR_REQUIRED, 'repair_required')
+}
+
 /** The pairing secret for this keyId: a pending slot, or the bound device's key. */
 function lookupSecret(
   keyId: string,
@@ -323,36 +381,19 @@ function handleHs1(conn: SyncConn, wireBytes: Buffer, msg: any): void {
     return dropConnection(conn, 1002, 'malformed hs1')
   }
 
-  // Persistent, socket-independent throttle: reconnecting does not reset it.
-  const backoff = getBackoff()
-  if (backoff.lockedOut) {
-    sendHandshake(conn, {
-      type: 'error',
-      code: 'locked_out',
-      retryAfterMs: backoff.lockedForMs
-    })
-    broadcastSyncStatus(
-      'error',
-      `Pairing locked for ${Math.ceil(backoff.lockedForMs / 60_000)} min after repeated failures`
-    )
-    return dropConnection(conn, X.CLOSE_TOO_MANY_ATTEMPTS, 'locked out')
-  }
-
   const found = lookupSecret(msg.keyId, msg.deviceId)
   if (!found) {
     // Unknown keyId and a mismatched key resolve to the SAME recoverable state.
-    bumpBackoff()
-    sendHandshake(conn, { type: 'error', code: 'repair_required' })
-    broadcastSyncStatus('error', 'A device tried to sync with an unknown pairing key')
-    return dropConnection(conn, X.CLOSE_REPAIR_REQUIRED, 'repair_required')
+    return failPairingAttempt(conn, 'A device tried to sync with an unknown pairing key')
   }
 
   let ss: Buffer
   try {
-    // Throws on an off-curve / malformed / wrong-curve point.
+    // Throws on an off-curve / malformed / wrong-curve point. Deliberately NOT
+    // counted against the pairing backoff: the keyId was valid, so this is a
+    // malformed frame, not a guess at the pairing control plane.
     ss = X.ecdhSharedSecret(conn.ephemeral.priv, msg.pub_c)
   } catch {
-    bumpBackoff()
     return dropConnection(conn, 1002, 'bad ephemeral key')
   }
 
@@ -384,10 +425,11 @@ function handleHs3(conn: SyncConn, msg: any): void {
   }
   const presented = Buffer.from(typeof msg.mac_c === 'string' ? msg.mac_c : '', 'base64')
   if (!X.constantTimeEqual(presented, conn.expectedMacC)) {
-    bumpBackoff()
-    sendHandshake(conn, { type: 'error', code: 'repair_required' })
-    broadcastSyncStatus('error', 'A device failed to authenticate — re-pair it if this was you')
-    return dropConnection(conn, X.CLOSE_REPAIR_REQUIRED, 'repair_required')
+    // The other pairing-plane failure: a present keyId whose secret is wrong.
+    return failPairingAttempt(
+      conn,
+      'A device failed to authenticate — re-pair it if this was you'
+    )
   }
 
   const now = Date.now()

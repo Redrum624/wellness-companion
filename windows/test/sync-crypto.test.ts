@@ -135,7 +135,33 @@ describe('GCM record framing', () => {
 
   test('the pinned dir constant is c2s / s2c padded to 4 bytes', () => {
     expect(hex(C.DIR_C2S)).toBe(hex(dir))
-    expect(hex(C.DIR_S2C)).toBe('73326300')
+    expect(hex(C.DIR_S2C)).toBe(hex(H(v.gcm_record_s2c.nonce).subarray(0, 4)))
+    expect(hex(C.DIR_C2S)).not.toBe(hex(C.DIR_S2C))
+  })
+
+  test('sealRecord reproduces the pinned s2c record (direction + non-zero counter)', () => {
+    // The s2c direction constant and the uint64 BE counter encoding are pinned
+    // by the fixture, not just by a literal in this file — Task 2 mirrors the
+    // wire format from the fixture alone.
+    const s = v.gcm_record_s2c
+    const obj = JSON.parse(Buffer.from(s.plaintext, 'hex').toString('utf8'))
+    const frame = C.sealRecord(H(s.key), BigInt(s.counter), C.DIR_S2C, obj)
+
+    expect(hex(frame.subarray(0, 9))).toBe(s.aad)
+    expect(frame.readBigUInt64BE(1)).toBe(BigInt(s.counter))
+    expect(hex(frame.subarray(9))).toBe(s.ct_tag)
+    expect(C.openRecord(H(s.key), BigInt(s.counter), C.DIR_S2C, frame)).toEqual(obj)
+  })
+
+  test('the two directions are not interchangeable', () => {
+    const s = v.gcm_record_s2c
+    const obj = JSON.parse(Buffer.from(s.plaintext, 'hex').toString('utf8'))
+    const frame = C.sealRecord(H(s.key), BigInt(s.counter), C.DIR_S2C, obj)
+    // Same key, same counter, wrong direction constant -> tag fails.
+    expect(() => C.openRecord(H(s.key), BigInt(s.counter), C.DIR_C2S, frame)).toThrow()
+    expect(hex(C.sealRecord(H(s.key), BigInt(s.counter), C.DIR_C2S, obj).subarray(9))).not.toBe(
+      s.ct_tag
+    )
   })
 
   test('openRecord round-trips a sealed record', () => {

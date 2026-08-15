@@ -116,6 +116,18 @@ describe('pending pairing slots', () => {
     expect(DB.getPending(310_001, io)['key-x']).toBeUndefined()
   })
 
+  test('reading live slots writes NOTHING (an unauthenticated hs1 costs no write)', () => {
+    const io = memIO()
+    DB.putPending('key-x', { secret_b64: secret(4), created: 0, ttlMs: 300_000 }, io)
+    const writes: string[] = []
+    const counting = { get: io.get, set: (k: string, v: string) => void (writes.push(k), io.set(k, v)) }
+
+    DB.getPending(1000, counting)
+    DB.getPending(2000, counting)
+    DB.getDeviceKeys(counting)
+    expect(writes).toEqual([])
+  })
+
   test('expired slots are pruned from storage, not just filtered on read', () => {
     const io = memIO()
     DB.putPending('key-x', { secret_b64: secret(4), created: 0, ttlMs: 1000 }, io)
