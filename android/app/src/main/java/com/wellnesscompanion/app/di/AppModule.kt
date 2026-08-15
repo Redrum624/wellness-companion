@@ -95,7 +95,20 @@ object AppModule {
         // Defense in depth: the branches above should already have failed
         // closed on any path that leaves dbFile missing, but Room must never
         // be allowed to create a fresh database over an inconsistent state.
-        if (!dbFile.exists()) {
+        //
+        // The guard is QUALIFIED by hasSurvivors on purpose. A missing
+        // wellness.db on its own is not an emergency -- it is the completely
+        // normal first launch of a new install: getDatabasePath only builds a
+        // path, recoverInterruptedSwap returns NotNeeded (no survivors) and
+        // migrateIfNeeded returns NotNeeded (a missing file is not plaintext),
+        // so nothing has created the file yet and Room is supposed to create it
+        // below. An unqualified check here crashed every new user on first
+        // launch. It is only an emergency when a survivor is sitting beside the
+        // hole (spec §4.4 Amendment 2026-08-15b (b)); the desktop leans on the
+        // same invariant -- it fails closed on a missing db only with
+        // SURVIVOR_GUIDANCE, and otherwise lets a fresh database be created
+        // (database.ts:51, :111-120).
+        if (!dbFile.exists() && DbEncryptionMigrator.hasSurvivors(dbFile)) {
             val reason = "wellness.db is unexpectedly missing; check for wellness.db.plaintext.bak " +
                 "and wellness.db.encrypting.tmp in the app's data directory -- your data is safe there"
             Log.e(TAG, reason)

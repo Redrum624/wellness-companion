@@ -147,12 +147,28 @@ class DbEncryptionMigratorTest {
         tmp.writeBytes(encryptedContent)
         bak.writeBytes(staleBakContent) // an old bak already sitting there
 
+        // The load-bearing observation is made AT the rename instant, not at
+        // the end: the end state of "delete bak, then rename onto it" is
+        // byte-identical to "rename onto it", so an end-state-only assertion
+        // cannot tell the two apart and would not regression-guard anything.
+        // Recording what bak looked like at the moment performSwap asked for
+        // the dbFile -> bak rename does: a pre-delete makes it absent there.
+        val bakAtSwapInstant = mutableListOf<String>()
         val replaceOnRename: RenameFn = { from, to ->
+            if (from == dbFile && to == bak) {
+                bakAtSwapInstant.add(if (bak.exists()) String(bak.readBytes()) else "<ABSENT>")
+            }
             if (to.exists()) to.delete()
             from.renameTo(to)
         }
         val result = DbEncryptionMigrator.performSwap(dbFile, tmp, bak, rows = 3, rename = replaceOnRename)
 
+        assertEquals(
+            "the stale bak must still be present, untouched, at the instant of the swap rename " +
+                "-- performSwap must issue no delete of its own",
+            listOf(String(staleBakContent)),
+            bakAtSwapInstant
+        )
         assertTrue("expected Migrated, got $result", result is DbEncryptionMigrator.MigrationResult.Migrated)
         assertEquals(3, (result as DbEncryptionMigrator.MigrationResult.Migrated).rows)
         assertArrayEquals("dbFile must be the (renamed) encrypted copy", encryptedContent, dbFile.readBytes())
@@ -163,5 +179,163 @@ class DbEncryptionMigratorTest {
             bak.readBytes()
         )
         assertFalse("tmp must be gone after a successful swap", tmp.exists())
+    }
+
+    // ------------------------------------------------------------------
+    // Fix round 2
+    // ------------------------------------------------------------------
+
+    /**
+     * The crash that round 1 introduced: `AppModule` failed closed on a bare
+     * `!dbFile.exists()`, which is the state EVERY new install is in on its
+     * first launch -- nothing creates wellness.db before Room does. The guard
+     * has to be qualified by the survivor state, and this is that qualifier.
+     */
+    @Test
+    fun `a genuine fresh install has no survivors so the missing-db guard must not fire`() {
+        assertFalse("nothing on disk at all: this is a first launch, not an emergency", dbFile.exists())
+        assertFalse(DbEncryptionMigrator.hasSurvivors(dbFile))
+
+        // A zero-length leftover is not a survivor either -- failing closed on
+        // one would brick a fresh install just as badly.
+        tmp.writeBytes(ByteArray(0))
+        bak.writeBytes(ByteArray(0))
+        assertFalse("zero-length leftovers hold no data", DbEncryptionMigrator.hasSurvivors(dbFile))
+    }
+
+    @Test
+    fun `either survivor alone qualifies the missing-db guard`() {
+        tmp.writeBytes("ENCRYPTED-TMP-CONTENT".toByteArray())
+        assertTrue("the encrypted tmp alone is a survivor", DbEncryptionMigrator.hasSurvivors(dbFile))
+
+        tmp.delete()
+        bak.writeBytes("PLAINTEXT-ORIGINAL-CONTENT".toByteArray())
+        assertTrue("the plaintext backup alone is a survivor", DbEncryptionMigrator.hasSurvivors(dbFile))
+    }
+
+    /**
+     * A zero-length wellness.db beside intact survivors is the interrupted-create
+     * state. Gating recovery on bare existence makes it skip FOREVER: the empty
+     * file never grows a header, so every later launch takes the same early
+     * return. Desktop gates on `exists && size > 0` (`database.ts:613`).
+     */
+    @Test
+    fun `a zero-length dbFile does not count as a database and recovery still runs`() {
+        val encryptedContent = "ENCRYPTED-TMP-CONTENT".toByteArray()
+        dbFile.writeBytes(ByteArray(0)) // 0 bytes, but it EXISTS
+        tmp.writeBytes(encryptedContent)
+
+        // Replace-on-rename, as POSIX/Android does it: java.io.File.renameTo on
+        // this Windows dev machine will not overwrite an existing destination,
+        // and the destination here (the 0-byte file) exists by construction.
+        val replaceOnRename: RenameFn = { from, to ->
+            if (to.exists()) to.delete()
+            from.renameTo(to)
+        }
+        val recovery = DbEncryptionMigrator.recoverInterruptedSwap(
+            dbFile,
+            passphrase = ByteArray(32),
+            verify = { _, _ -> 11 },
+            rename = replaceOnRename
+        )
+
+        assertTrue(
+            "expected Recovered over the 0-byte placeholder, got $recovery",
+            recovery is DbEncryptionMigrator.RecoveryResult.Recovered
+        )
+        assertArrayEquals(
+            "the 0-byte placeholder must be replaced by the verified encrypted survivor",
+            encryptedContent,
+            dbFile.readBytes()
+        )
+    }
+
+    @Test
+    fun `a zero-length dbFile with no survivors is still a first run, not an error`() {
+        dbFile.writeBytes(ByteArray(0))
+
+        val recovery = DbEncryptionMigrator.recoverInterruptedSwap(dbFile, passphrase = ByteArray(32))
+
+        assertTrue(
+            "no survivor exists, so there is nothing to recover and nothing to fail on: got $recovery",
+            recovery is DbEncryptionMigrator.RecoveryResult.NotNeeded
+        )
+    }
+
+    /**
+     * Requirement (d) of spec §4.4 Amendment 2026-08-15b, enforced inside
+     * cleanupTmp itself rather than at each call site (as the desktop does,
+     * `database.ts:486-495`) so it cannot be lost by a future caller.
+     */
+    @Test
+    fun `cleanupTmp never deletes the working copy while the live database is missing`() {
+        val encryptedContent = "ENCRYPTED-TMP-CONTENT".toByteArray()
+        tmp.writeBytes(encryptedContent)
+        File(dir, "wellness.db.encrypting.tmp-wal").writeBytes("WAL".toByteArray())
+
+        DbEncryptionMigrator.cleanupTmp(dbFile) // wellness.db absent
+
+        assertTrue("the tmp may be the only copy of the newest state -- never delete it", tmp.exists())
+        assertArrayEquals(encryptedContent, tmp.readBytes())
+
+        dbFile.writeBytes(ByteArray(0))
+        DbEncryptionMigrator.cleanupTmp(dbFile) // a 0-byte wellness.db is not a database either
+        assertTrue("a zero-length wellness.db does not make the tmp junk", tmp.exists())
+
+        dbFile.writeBytes("REAL-LIVE-DATABASE".toByteArray())
+        DbEncryptionMigrator.cleanupTmp(dbFile)
+        assertFalse("with a real live database present the tmp IS junk and must go", tmp.exists())
+        assertFalse(File(dir, "wellness.db.encrypting.tmp-wal").exists())
+    }
+
+    /**
+     * The lost-key path renames the undecryptable wellness.db aside. A second
+     * key loss must not delete the first keylost copy to reuse its name: that
+     * file may hold every entry written between the two losses, and this is the
+     * one code path whose entire purpose is not losing data.
+     */
+    @Test
+    fun `a second lost-key recovery keeps the first keylost copy under a fresh name`() {
+        val firstUnreadable = "UNREADABLE-CIPHERTEXT-ONE".toByteArray()
+        val firstBackup = "PLAINTEXT-BACKUP-ONE".toByteArray()
+        dbFile.writeBytes(firstUnreadable)
+        bak.writeBytes(firstBackup)
+
+        val first = DbEncryptionMigrator.recoverFromLostKey(dbFile)
+        assertTrue("expected Recovered, got $first", first is DbEncryptionMigrator.RecoveryResult.Recovered)
+        val keylostOne = File(dir, "wellness.db.keylost.bak")
+        assertTrue("the unreadable database must be preserved aside", keylostOne.exists())
+        assertArrayEquals(firstUnreadable, keylostOne.readBytes())
+        assertArrayEquals("the plaintext backup takes wellness.db's place", firstBackup, dbFile.readBytes())
+
+        // Second cycle: a new (re-encrypted, now also unreadable) database and a
+        // new backup, and the key is lost again.
+        val secondUnreadable = "UNREADABLE-CIPHERTEXT-TWO".toByteArray()
+        val secondBackup = "PLAINTEXT-BACKUP-TWO".toByteArray()
+        dbFile.writeBytes(secondUnreadable)
+        bak.writeBytes(secondBackup)
+
+        val second = DbEncryptionMigrator.recoverFromLostKey(dbFile)
+        assertTrue("expected Recovered, got $second", second is DbEncryptionMigrator.RecoveryResult.Recovered)
+
+        assertTrue("the FIRST keylost copy must still exist, untouched", keylostOne.exists())
+        assertArrayEquals(
+            "the first keylost copy's bytes must be unchanged",
+            firstUnreadable,
+            keylostOne.readBytes()
+        )
+        val keylostFiles = dir.listFiles { f -> f.name.startsWith("wellness.db.keylost") }!!
+        assertEquals(
+            "each lost-key cycle gets its own file: ${keylostFiles.map { it.name }}",
+            2,
+            keylostFiles.size
+        )
+        val keylostTwo = keylostFiles.first { it.name != keylostOne.name }
+        assertArrayEquals(
+            "the second cycle's unreadable database is preserved too",
+            secondUnreadable,
+            keylostTwo.readBytes()
+        )
+        assertArrayEquals(secondBackup, dbFile.readBytes())
     }
 }

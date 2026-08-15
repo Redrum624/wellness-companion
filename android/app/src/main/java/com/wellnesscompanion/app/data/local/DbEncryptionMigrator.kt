@@ -4,6 +4,9 @@ import android.util.Log
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 import java.io.File
 import java.io.RandomAccessFile
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Seam for a real keyed row-count read, injectable so JVM unit tests (no
@@ -128,7 +131,49 @@ object DbEncryptionMigrator {
 
     private fun tmpFile(dbFile: File) = File(dbFile.parentFile, dbFile.name + TMP_SUFFIX)
     private fun bakFile(dbFile: File) = File(dbFile.parentFile, dbFile.name + BAK_SUFFIX)
-    private fun keylostFile(dbFile: File) = File(dbFile.parentFile, dbFile.name + KEYLOST_SUFFIX)
+
+    /**
+     * A fresh, non-colliding name for the "key was lost, this file can no
+     * longer be decrypted" copy. It NEVER returns a name that is already taken:
+     * an earlier `.keylost` file is data-bearing (it may be the only copy of
+     * everything written since the migration), and deleting one to reuse its
+     * name on a data-loss-recovery path is exactly the mistake this whole file
+     * exists to avoid. Second and later cycles get a timestamp suffix
+     * (`wellness.db.keylost-20260815-142530.bak`, `-1`, `-2`, ... on the same
+     * second) so every generation survives side by side.
+     */
+    private fun freshKeylostFile(dbFile: File): File {
+        val base = File(dbFile.parentFile, dbFile.name + KEYLOST_SUFFIX)
+        if (!base.exists()) return base
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        var candidate = File(dbFile.parentFile, "${dbFile.name}.keylost-$stamp.bak")
+        var n = 1
+        while (candidate.exists()) {
+            candidate = File(dbFile.parentFile, "${dbFile.name}.keylost-$stamp-$n.bak")
+            n++
+        }
+        return candidate
+    }
+
+    /**
+     * True when a migration survivor -- the verified encrypted
+     * `.encrypting.tmp` or the pre-migration `.plaintext.bak` -- is on disk and
+     * non-empty.
+     *
+     * This is the qualifier the caller's "wellness.db is missing" guard needs.
+     * A missing `wellness.db` on its own is the completely normal FIRST LAUNCH
+     * of a new install: nothing creates the file before Room does. It is only
+     * an emergency when a survivor is sitting beside the hole, which is the
+     * interrupted-swap state (spec §4.4 Amendment 2026-08-15b (b)). The desktop
+     * relies on the same invariant -- it computes `hadExistingDb` AFTER
+     * recovery and only fails closed on a missing file when a survivor exists
+     * (`windows/src/main/database.ts:51`, `SURVIVOR_GUIDANCE`).
+     */
+    fun hasSurvivors(dbFile: File): Boolean {
+        val tmp = tmpFile(dbFile)
+        val bak = bakFile(dbFile)
+        return (tmp.exists() && tmp.length() > 0) || (bak.exists() && bak.length() > 0)
+    }
 
     private fun removeIfPresent(file: File) {
         try {
@@ -140,7 +185,18 @@ object DbEncryptionMigrator {
         }
     }
 
-    private fun cleanupTmp(dbFile: File) {
+    /**
+     * Deletes the working copy left by an earlier attempt -- but ONLY while the
+     * live database is actually on disk. With `wellness.db` missing (or
+     * zero-length, which is what an interrupted create leaves behind) this
+     * working copy may be the only copy of the newest state, and deleting it is
+     * the difference between a bad launch and permanent data loss. The guard
+     * lives HERE, not at the call sites, so requirement (d) of spec §4.4
+     * Amendment 2026-08-15b holds by construction for every present and future
+     * caller -- exactly as the desktop does it (`database.ts:486-495`).
+     */
+    internal fun cleanupTmp(dbFile: File) {
+        if (!dbFile.exists() || dbFile.length() == 0L) return
         val tmp = tmpFile(dbFile)
         removeIfPresent(tmp)
         removeIfPresent(File(tmp.path + "-wal"))
@@ -170,7 +226,17 @@ object DbEncryptionMigrator {
         verify: VerifyFn = defaultVerify,
         rename: RenameFn = defaultRename
     ): RecoveryResult {
-        if (dbFile.exists()) return RecoveryResult.NotNeeded
+        // Gate the early return on the file being a REAL database, not merely a
+        // file: a zero-length wellness.db is what an interrupted create leaves
+        // behind, and treating it as "nothing to do" is exactly how recovery
+        // gets skipped -- permanently, since the empty file never grows a header
+        // and every later launch takes the same early return while both
+        // survivors sit beside it. Same gate the desktop uses
+        // (`database.ts:613`). A deeper content check is deliberately NOT done:
+        // an empty-but-initialised database is indistinguishable from a user who
+        // deleted all their entries, and restoring a backup over that would
+        // resurrect deleted data.
+        if (dbFile.exists() && dbFile.length() > 0) return RecoveryResult.NotNeeded
 
         val tmp = tmpFile(dbFile)
         val bak = bakFile(dbFile)
@@ -214,7 +280,8 @@ object DbEncryptionMigrator {
      * corrupt blob, or the AndroidKeyStore alias is gone) when a
      * pre-encryption `wellness.db.plaintext.bak` still exists (I2, spec §6
      * residual). The now-undecryptable `wellness.db` is preserved (renamed
-     * aside to `wellness.db.keylost.bak`, never deleted) and the plaintext
+     * aside to a fresh, never-reused `wellness.db.keylost*.bak` name, and never
+     * deleted -- see [freshKeylostFile]) and the plaintext
      * backup takes `wellness.db`'s place, so a freshly minted passphrase
      * (`DbKeyManager.mintFreshPassphrase`) and [migrateIfNeeded] can
      * re-encrypt it on this same launch -- instead of the app refusing to
@@ -229,9 +296,12 @@ object DbEncryptionMigrator {
             )
         }
 
-        val keylost = keylostFile(dbFile)
+        // A previous .keylost copy is never deleted to make room for this one
+        // (see freshKeylostFile): it may hold everything written between two
+        // key losses, and this is a data-LOSS recovery path -- the one place
+        // where deleting a data-bearing file is least excusable.
+        val keylost = freshKeylostFile(dbFile)
         if (dbFile.exists()) {
-            removeIfPresent(keylost) // clear an earlier keylost attempt before reusing the name
             if (!rename(dbFile, keylost)) {
                 return RecoveryResult.Unrecoverable(
                     "the database encryption key could not be unwrapped and the unreadable " +

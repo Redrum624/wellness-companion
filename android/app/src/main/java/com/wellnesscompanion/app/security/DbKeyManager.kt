@@ -35,6 +35,14 @@ object DbKeyManager {
     private const val TAG = "DbKeyManager"
     private const val PREFS_NAME = "wellness_db_key"
     private const val PREF_KEY_BLOB = "wellness_db_key"
+    /**
+     * Every wrapped blob that [mintFreshPassphrase] has ever replaced, newline
+     * separated, oldest first (a Base64 NO_WRAP blob never contains a newline,
+     * so the join is unambiguous). Append-only: a blob is NEVER dropped from
+     * this list, because the file it decrypts (`wellness.db.keylost*.bak`) is
+     * never deleted either.
+     */
+    private const val PREF_KEY_BLOB_PREVIOUS = "wellness_db_key.previous"
     private const val KEYSTORE_ALIAS = "wellness_db_key_wrap"
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
@@ -60,15 +68,52 @@ object DbKeyManager {
     }
 
     /**
-     * Mints and persists a brand-new passphrase unconditionally, overwriting
-     * any existing (unusable) wrapped blob. Only for the lost-key recovery
-     * path in `AppModule` -- [getOrCreatePassphrase] must never silently do
-     * this on its own, which would risk stranding data still under the old key
-     * before a caller gets a chance to recover it via a `.plaintext.bak`.
+     * Mints and persists a brand-new passphrase unconditionally, replacing the
+     * existing (unusable) wrapped blob. Only for the lost-key recovery path in
+     * `AppModule` -- [getOrCreatePassphrase] must never silently do this on its
+     * own, which would risk stranding data still under the old key before a
+     * caller gets a chance to recover it via a `.plaintext.bak`.
+     *
+     * The blob being replaced is PRESERVED first, under
+     * [PREF_KEY_BLOB_PREVIOUS]. That is what keeps the recovery reversible: the
+     * lost-key path renames the undecryptable `wellness.db` aside to
+     * `wellness.db.keylost*.bak` and rolls back to the plaintext backup, so
+     * every entry written since the migration lives ONLY in that keylost file.
+     * The unwrap failure that triggered all this may be transient (the Keystore
+     * alias briefly unavailable, a locked-device hiccup) -- and if the only
+     * blob that can ever decrypt the keylost file were overwritten here, a
+     * transient failure would be silently promoted to permanent data loss.
+     * Preserving it costs one string and leaves the door open.
      */
     fun mintFreshPassphrase(context: Context): ByteArray {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        preserveCurrentBlob(prefs)
         return mintAndPersist(prefs, "Minted a fresh database passphrase after the previous key became unusable.")
+    }
+
+    /**
+     * Appends the blob currently in [PREF_KEY_BLOB] to the append-only
+     * [PREF_KEY_BLOB_PREVIOUS] list, committed synchronously BEFORE anything
+     * overwrites it. Appends rather than overwrites so a second key loss cannot
+     * discard the blob belonging to the first keylost file. Never logs a blob.
+     *
+     * Nothing reads these back automatically: an automatic "try every old key"
+     * pass would have to decide where to put what it found, and this file's
+     * discipline is that a recovery path never guesses. They stay in
+     * `shared_prefs/wellness_db_key.xml` for as long as the app is installed so
+     * the keylost files remain decryptable AT ALL -- by a later deliberate
+     * recovery flow, not by a silent one.
+     */
+    private fun preserveCurrentBlob(prefs: SharedPreferences) {
+        val current = prefs.getString(PREF_KEY_BLOB, null) ?: return
+        val existing = prefs.getString(PREF_KEY_BLOB_PREVIOUS, null)
+        val kept = existing?.split('\n')?.filter { it.isNotEmpty() } ?: emptyList()
+        if (kept.contains(current)) return
+        val saved = prefs.edit()
+            .putString(PREF_KEY_BLOB_PREVIOUS, (kept + current).joinToString("\n"))
+            .commit()
+        check(saved) { "could not preserve the previous wrapped database passphrase" }
+        Log.i(TAG, "Preserved the previous wrapped database key (${kept.size + 1} kept).")
     }
 
     private fun mintAndPersist(prefs: SharedPreferences, logMessage: String): ByteArray {
