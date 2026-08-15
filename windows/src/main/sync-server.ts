@@ -3,11 +3,28 @@ import { Bonjour } from 'bonjour-service'
 import { ipcMain, BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
 import { networkInterfaces } from 'os'
-import { randomInt, timingSafeEqual } from 'crypto'
-import { getDatabase } from './database'
+import { randomBytes, randomUUID } from 'crypto'
+// transport: wc-sync/4 replaces the plaintext v3 protocol wholesale.
+import {
+  getDatabase,
+  getDeviceKeys,
+  upsertDeviceKey,
+  removeDeviceKey,
+  clearPairings,
+  getPending,
+  putPending,
+  bindPending,
+  getBackoff,
+  bumpBackoff,
+  resetBackoff
+} from './database'
+import * as X from './sync-crypto'
 
 let wss: WebSocketServer | null = null
-let bonjour: Bonjour | null = null
+// InstanceType<> rather than `Bonjour` directly: the package resolves to a
+// types entry where Bonjour is only a value under the test tsconfig's
+// node-style module resolution, and to a class+type under the build's.
+let bonjour: InstanceType<typeof Bonjour> | null = null
 let bonjourService: any = null
 let heartbeat: NodeJS.Timeout | null = null
 
@@ -20,25 +37,9 @@ const MAX_CONNECTIONS = 4
 const MAX_ENTRIES_PER_MESSAGE = 20000
 const MAX_DATA_LENGTH = 256 * 1024
 const HEARTBEAT_MS = 30_000
-/** Wrong codes per socket before it is dropped — blunts online guessing. */
-const MAX_AUTH_ATTEMPTS = 5
 
-const TOKEN_SETTING_KEY = 'sync.pairing_token'
-/**
- * Character set pairing codes are drawn FROM — not a secret itself. Excludes
- * 0/O/1/I/L, which are the pairs people misread when copying a code off a
- * screen onto a phone.
- */
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789' // gitleaks:allow
-const TOKEN_LENGTH = 8
-
-interface PeerState {
-  authed: boolean
-  isAlive: boolean
-  attempts: number
-}
-
-const peers = new Map<WebSocket, PeerState>()
+// transport: a pairing code is valid for one first handshake within this window.
+const PAIRING_TTL_MS = 5 * 60_000
 
 /** Categories the desktop knows about; anything else is rejected on ingest. */
 const KNOWN_CATEGORIES = new Set([
@@ -59,6 +60,48 @@ const AUX_TABLES = {
 
 type AuxTable = keyof typeof AUX_TABLES
 
+// transport: ── connection state machine ────────────────────────────────────
+
+/**
+ * The subset of `ws` the protocol actually uses. Structural, so the state
+ * machine can be driven by a fake peer in tests without a real socket.
+ */
+export interface SyncSocket {
+  readyState: number
+  send(data: string | Buffer): void
+  close(code?: number, reason?: string): void
+  ping?(): void
+  terminate?(): void
+}
+
+/**
+ * Per-connection state. There is deliberately NO `authed` flag any more:
+ * `channelEstablished` is the only established state, and only a verified
+ * `hs3` sets it.
+ */
+export interface SyncConn {
+  ws: SyncSocket
+  isAlive: boolean
+  closed: boolean
+  channelEstablished: boolean
+  /** Fresh per connection — reuse across a reconnect is the GCM nonce-reuse bug. */
+  ephemeral: X.EphemeralKey | null
+  /** The exact bytes we sent / received, hashed into the transcript verbatim. */
+  helloBytes: Buffer | null
+  hs1Bytes: Buffer | null
+  expectedMacC: Buffer | null
+  kC2S: Buffer | null
+  kS2C: Buffer | null
+  ctrIn: bigint
+  ctrOut: bigint
+  keyId: string | null
+  deviceId: string | null
+  label: string
+  fromPending: boolean
+}
+
+const peers = new Map<SyncSocket, SyncConn>()
+
 function broadcastSyncStatus(status: string, detail?: string): void {
   BrowserWindow.getAllWindows().forEach((win) => {
     if (!win.isDestroyed()) win.webContents.send('sync:status', { status, detail })
@@ -75,48 +118,364 @@ function getLocalIp(): string {
   return '127.0.0.1'
 }
 
+function isOpen(conn: SyncConn): boolean {
+  return !conn.closed && conn.ws.readyState === WebSocket.OPEN
+}
+
 /**
- * The pairing code. Generated once and kept in the settings table so it stays
- * stable across restarts — the phone stores it after the first pairing.
+ * Emitter #1 of exactly two: TEXT frames, handshake JSON only. It refuses to
+ * run once a channel exists, so a stray error reply can never egress as
+ * plaintext after `hs3`. Returns the exact string sent, because the transcript
+ * must hash the bytes that actually went on the wire.
  */
-export function getPairingToken(): string {
-  const db = getDatabase()
-  const row: any = db.prepare('SELECT value FROM settings WHERE key = ?').get(TOKEN_SETTING_KEY)
-  if (row?.value) return row.value
-
-  let token = ''
-  for (let i = 0; i < TOKEN_LENGTH; i++) {
-    token += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]
+function sendHandshake(conn: SyncConn, obj: unknown): string {
+  if (conn.channelEstablished) {
+    throw new Error('sendHandshake called after the encrypted channel was established')
   }
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
-    TOKEN_SETTING_KEY,
-    token
-  )
-  return token
+  const json = JSON.stringify(obj)
+  if (isOpen(conn)) conn.ws.send(json)
+  return json
 }
 
-export function regeneratePairingToken(): string {
-  getDatabase().prepare('DELETE FROM settings WHERE key = ?').run(TOKEN_SETTING_KEY)
-  // Drop every paired socket so an old code cannot keep a session alive.
-  peers.forEach((state, ws) => {
-    state.authed = false
-    try {
-      ws.close(4001, 'pairing code changed')
-    } catch {
-      /* already gone */
-    }
+/**
+ * Emitter #2 of exactly two: BINARY GCM records. This is the ONLY way an
+ * `auth_ok` / `full_sync_response` / `push_ack` / `pull_response` can be
+ * produced.
+ */
+function sendEncrypted(conn: SyncConn, obj: unknown): void {
+  if (!conn.channelEstablished || !conn.kS2C) {
+    throw new Error('sendEncrypted called before the encrypted channel was established')
+  }
+  if (!isOpen(conn)) return
+  const frame = X.sealRecord(conn.kS2C, conn.ctrOut, X.DIR_S2C, obj)
+  conn.ctrOut += 1n
+  conn.ws.send(frame)
+}
+
+/** Close and forget every key this connection derived. */
+function dropConnection(conn: SyncConn, code: number, reason: string): void {
+  if (conn.closed) return
+  conn.closed = true
+  conn.ephemeral = null
+  conn.kC2S = null
+  conn.kS2C = null
+  conn.expectedMacC = null
+  conn.channelEstablished = false
+  try {
+    conn.ws.close(code, reason)
+  } catch {
+    /* already gone */
+  }
+  peers.delete(conn.ws)
+}
+
+/**
+ * Set up a connection and speak first: the server sends `hello` so the phone
+ * never fires a frame before it knows which protocol it is talking to.
+ */
+export function createConnection(ws: SyncSocket): SyncConn {
+  const conn: SyncConn = {
+    ws,
+    isAlive: true,
+    closed: false,
+    channelEstablished: false,
+    ephemeral: X.generateEphemeral(),
+    helloBytes: null,
+    hs1Bytes: null,
+    expectedMacC: null,
+    kC2S: null,
+    kS2C: null,
+    ctrIn: 0n,
+    ctrOut: 0n,
+    keyId: null,
+    deviceId: null,
+    label: 'Phone',
+    fromPending: false
+  }
+  peers.set(ws, conn)
+  const hello = sendHandshake(conn, {
+    type: 'hello',
+    version: 4,
+    minVersion: 4,
+    crypto: [X.CRYPTO],
+    nonce_s: randomBytes(32).toString('base64')
   })
-  return getPairingToken()
+  conn.helloBytes = Buffer.from(hello, 'utf8')
+  return conn
 }
 
-function tokenMatches(candidate: unknown): boolean {
-  if (typeof candidate !== 'string') return false
-  const expected = Buffer.from(getPairingToken().toUpperCase(), 'utf8')
-  const given = Buffer.from(candidate.trim().toUpperCase().replace(/-/g, ''), 'utf8')
-  // timingSafeEqual throws on a length mismatch, so compare lengths first.
-  if (given.length !== expected.length) return false
-  return timingSafeEqual(given, expected)
+function toBuffer(data: Buffer | ArrayBuffer | Buffer[] | string): Buffer {
+  if (typeof data === 'string') return Buffer.from(data, 'utf8')
+  if (Array.isArray(data)) return Buffer.concat(data)
+  return Buffer.isBuffer(data) ? data : Buffer.from(new Uint8Array(data as ArrayBuffer))
 }
+
+/**
+ * The single entry point for every inbound frame, split by channel:
+ * pre-handshake accepts TEXT handshake JSON only, established accepts BINARY
+ * records only. A frame on the wrong channel for the current state is closed
+ * with no reply — there is no code path by which a text `full_sync` can reach
+ * the ingest pipeline.
+ */
+export function handleFrame(
+  conn: SyncConn,
+  data: Buffer | ArrayBuffer | Buffer[] | string,
+  isBinary: boolean
+): void {
+  if (conn.closed) return
+
+  if (conn.channelEstablished) {
+    if (!isBinary) return dropConnection(conn, 1002, 'text frame on an encrypted channel')
+    return handleRecord(conn, toBuffer(data))
+  }
+
+  if (isBinary) return dropConnection(conn, 1002, 'binary frame before the handshake')
+
+  const raw = toBuffer(data)
+  // Size cap BEFORE any parsing or crypto (handshake-junk DoS).
+  if (raw.length > X.MAX_HANDSHAKE_FRAME_BYTES) {
+    return dropConnection(conn, 1009, 'handshake frame too large')
+  }
+
+  let msg: any
+  try {
+    msg = JSON.parse(raw.toString('utf8'))
+  } catch {
+    return dropConnection(conn, 1002, 'invalid handshake JSON')
+  }
+  if (!msg || typeof msg !== 'object') {
+    return dropConnection(conn, 1002, 'invalid handshake frame')
+  }
+
+  switch (msg.type) {
+    case 'hs1':
+      return handleHs1(conn, raw, msg)
+    case 'hs3':
+      return handleHs3(conn, msg)
+    // The v3 plaintext data path. It validates nothing and moves zero rows.
+    case 'auth':
+    case 'full_sync':
+    case 'push':
+    case 'pull':
+      return tombstoneLegacyFrame(conn)
+    default:
+      return dropConnection(conn, 1002, 'unexpected handshake frame')
+  }
+}
+
+/**
+ * Pure tombstone for every legacy v3 frame: no token comparison, no database
+ * handle, no ingest — just "update the phone" and a close. The reply is
+ * identical for a right and a wrong code, so it is not an oracle either.
+ */
+function tombstoneLegacyFrame(conn: SyncConn): void {
+  sendHandshake(conn, { type: 'error', code: 'update_required' })
+  broadcastSyncStatus('error', 'Phone app is outdated — update it to sync.')
+  dropConnection(conn, X.CLOSE_UPDATE_REQUIRED, 'update_required')
+}
+
+function isSaneString(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+}
+
+/**
+ * The phone supplies its own display name and it is rendered in the desktop UI,
+ * so keep it short and printable — control characters would corrupt the list.
+ */
+function sanitizeLabel(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return Array.from(value.slice(0, 64), (ch) => ch.charCodeAt(0))
+    .filter((ch) => ch >= 0x20 && ch !== 0x7f)
+    .map((code) => String.fromCharCode(code))
+    .join('')
+}
+
+/** The pairing secret for this keyId: a pending slot, or the bound device's key. */
+function lookupSecret(
+  keyId: string,
+  deviceId: string
+): { secret: Buffer; fromPending: boolean; label: string | null } | null {
+  const pending = getPending()[keyId]
+  if (pending) {
+    return { secret: Buffer.from(pending.secret_b64, 'base64'), fromPending: true, label: null }
+  }
+  const bound = getDeviceKeys()[deviceId]
+  if (bound && bound.keyId === keyId) {
+    return { secret: Buffer.from(bound.secret_b64, 'base64'), fromPending: false, label: bound.label }
+  }
+  return null
+}
+
+function handleHs1(conn: SyncConn, wireBytes: Buffer, msg: any): void {
+  if (conn.hs1Bytes || !conn.ephemeral || !conn.helloBytes) {
+    return dropConnection(conn, 1002, 'unexpected hs1')
+  }
+  if (msg.proto !== X.CRYPTO) {
+    sendHandshake(conn, { type: 'error', code: 'update_required' })
+    return dropConnection(conn, X.CLOSE_UPDATE_REQUIRED, 'unsupported crypto')
+  }
+  if (
+    !isSaneString(msg.keyId, 128) ||
+    !isSaneString(msg.deviceId, 128) ||
+    !isSaneString(msg.pub_c, 1024) ||
+    !isSaneString(msg.nonce_c, 128)
+  ) {
+    return dropConnection(conn, 1002, 'malformed hs1')
+  }
+
+  // Persistent, socket-independent throttle: reconnecting does not reset it.
+  const backoff = getBackoff()
+  if (backoff.lockedOut) {
+    sendHandshake(conn, {
+      type: 'error',
+      code: 'locked_out',
+      retryAfterMs: backoff.lockedForMs
+    })
+    broadcastSyncStatus(
+      'error',
+      `Pairing locked for ${Math.ceil(backoff.lockedForMs / 60_000)} min after repeated failures`
+    )
+    return dropConnection(conn, X.CLOSE_TOO_MANY_ATTEMPTS, 'locked out')
+  }
+
+  const found = lookupSecret(msg.keyId, msg.deviceId)
+  if (!found) {
+    // Unknown keyId and a mismatched key resolve to the SAME recoverable state.
+    bumpBackoff()
+    sendHandshake(conn, { type: 'error', code: 'repair_required' })
+    broadcastSyncStatus('error', 'A device tried to sync with an unknown pairing key')
+    return dropConnection(conn, X.CLOSE_REPAIR_REQUIRED, 'repair_required')
+  }
+
+  let ss: Buffer
+  try {
+    // Throws on an off-curve / malformed / wrong-curve point.
+    ss = X.ecdhSharedSecret(conn.ephemeral.priv, msg.pub_c)
+  } catch {
+    bumpBackoff()
+    return dropConnection(conn, 1002, 'bad ephemeral key')
+  }
+
+  conn.hs1Bytes = wireBytes
+  const pubS = conn.ephemeral.publicSpkiB64
+  // th covers the exact wire bytes of hello and hs1 (so version, minVersion,
+  // crypto[], both nonces and pub_c are all bound) plus pub_s as base64 TEXT.
+  const th = X.transcriptHash(conn.helloBytes, wireBytes, Buffer.from(pubS, 'ascii'))
+  const keys = X.deriveSession(ss, X.pskFromSecret(found.secret), th)
+
+  conn.kC2S = keys.kC2S
+  conn.kS2C = keys.kS2C
+  conn.expectedMacC = X.macTag(keys.km, 'cli', th)
+  conn.keyId = msg.keyId
+  conn.deviceId = msg.deviceId
+  conn.fromPending = found.fromPending
+  conn.label = sanitizeLabel(msg.deviceName) || found.label || 'Phone'
+
+  sendHandshake(conn, {
+    type: 'hs2',
+    pub_s: pubS,
+    mac_s: X.macTag(keys.km, 'srv', th).toString('base64')
+  })
+}
+
+function handleHs3(conn: SyncConn, msg: any): void {
+  if (!conn.expectedMacC || !conn.deviceId || !conn.keyId) {
+    return dropConnection(conn, 1002, 'hs3 before hs1')
+  }
+  const presented = Buffer.from(typeof msg.mac_c === 'string' ? msg.mac_c : '', 'base64')
+  if (!X.constantTimeEqual(presented, conn.expectedMacC)) {
+    bumpBackoff()
+    sendHandshake(conn, { type: 'error', code: 'repair_required' })
+    broadcastSyncStatus('error', 'A device failed to authenticate — re-pair it if this was you')
+    return dropConnection(conn, X.CLOSE_REPAIR_REQUIRED, 'repair_required')
+  }
+
+  const now = Date.now()
+  if (conn.fromPending) {
+    // First handshake against a pending slot: bind it, permanently.
+    if (!bindPending(conn.keyId, conn.deviceId, conn.label, now)) {
+      sendHandshake(conn, { type: 'error', code: 'repair_required' })
+      return dropConnection(conn, X.CLOSE_REPAIR_REQUIRED, 'pairing expired')
+    }
+  } else {
+    const existing = getDeviceKeys()[conn.deviceId]
+    if (existing) {
+      upsertDeviceKey(conn.deviceId, { ...existing, label: conn.label, lastSeen: now })
+    }
+  }
+  resetBackoff()
+
+  conn.channelEstablished = true
+  conn.expectedMacC = null
+  sendEncrypted(conn, { type: 'auth_ok' })
+  broadcastSyncStatus('connected', `${conn.label} paired`)
+}
+
+function handleRecord(conn: SyncConn, frame: Buffer): void {
+  if (!conn.kC2S) return dropConnection(conn, 1002, 'no channel')
+  let msg: any
+  try {
+    // One-shot: the counter is checked first and the plaintext is only ever
+    // observable after the tag verifies.
+    msg = X.openRecord(conn.kC2S, conn.ctrIn, X.DIR_C2S, frame)
+  } catch {
+    // No reply — any reply here would have to be a plaintext text frame.
+    return dropConnection(conn, 1008, 'record rejected')
+  }
+  conn.ctrIn += 1n
+  if (!msg || typeof msg !== 'object') return dropConnection(conn, 1002, 'malformed record')
+
+  try {
+    handleAppMessage(conn, msg)
+  } catch (err) {
+    console.error('Sync handler error:', err)
+    if (conn.channelEstablished) sendEncrypted(conn, { type: 'error', message: 'Internal error' })
+  }
+}
+
+/** The data plane. Every entry into it asserts the channel exists. */
+function handleAppMessage(conn: SyncConn, msg: any): void {
+  if (!conn.channelEstablished) {
+    throw new Error('data-plane message reached the handler without an established channel')
+  }
+  const db = getDatabase()
+
+  switch (msg.type) {
+    case 'push': {
+      const { inserted, updated, rejected } = ingestEntries(db, msg.entries)
+      ingestAux(db, msg)
+      sendEncrypted(conn, { type: 'push_ack', inserted, updated, rejected })
+      broadcastSyncStatus('synced', `Received: ${inserted} new, ${updated} updated`)
+      break
+    }
+
+    case 'pull': {
+      sendEncrypted(conn, { type: 'pull_response', ...readSince(db, msg.since) })
+      broadcastSyncStatus('synced', 'Sent updates to the phone')
+      break
+    }
+
+    case 'full_sync': {
+      const { inserted, updated, rejected } = ingestEntries(db, msg.entries)
+      ingestAux(db, msg)
+      // `since` keeps this incremental. It used to SELECT * FROM entries and
+      // stringify the whole history on every sync, so peak memory grew with
+      // the log. A client that has never synced still sends 0 and gets all.
+      sendEncrypted(conn, {
+        type: 'full_sync_response',
+        ...readSince(db, msg.since),
+        received: { inserted, updated, rejected }
+      })
+      broadcastSyncStatus('synced', `Full sync: +${inserted} new, ${updated} updated`)
+      break
+    }
+
+    default:
+      sendEncrypted(conn, { type: 'error', message: `Unknown type: ${msg.type}` })
+  }
+}
+
+// transport: ── end connection state machine ────────────────────────────────
 
 /**
  * Reject malformed rows before they reach SQLite. Values are parameterised, so
@@ -134,10 +493,6 @@ function isValidEntry(e: any): boolean {
   return true
 }
 
-function send(ws: WebSocket, payload: unknown): void {
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload))
-}
-
 export function startSyncServer(): void {
   if (wss) return
 
@@ -151,49 +506,45 @@ export function startSyncServer(): void {
   wss.on('connection', (ws) => {
     if (peers.size >= MAX_CONNECTIONS) {
       try {
-        ws.close(4003, 'too many connections')
+        ws.close(X.CLOSE_TOO_MANY_CONNECTIONS, 'too many connections')
       } catch {
         /* ignore */
       }
       return
     }
 
-    peers.set(ws, { authed: false, isAlive: true, attempts: 0 })
+    const conn = createConnection(ws as unknown as SyncSocket)
     broadcastSyncStatus('pairing', 'Device connecting…')
 
     ws.on('pong', () => {
-      const state = peers.get(ws)
-      if (state) state.isAlive = true
+      conn.isAlive = true
     })
 
-    ws.on('message', (raw) => {
-      let msg: any
+    // transport: (data, isBinary) split — a single raw.toString()+JSON.parse
+    // for every frame breaks on binary records and leaks a cleartext error per
+    // encrypted frame.
+    ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
       try {
-        msg = JSON.parse(raw.toString())
-      } catch {
-        send(ws, { type: 'error', message: 'Invalid JSON' })
-        return
-      }
-      try {
-        handleSyncMessage(ws, msg)
-      } catch (err: any) {
-        console.error('Sync handler error:', err)
-        send(ws, { type: 'error', message: 'Internal error' })
+        handleFrame(conn, data, isBinary)
+      } catch (err) {
+        console.error('Sync frame error:', err)
+        dropConnection(conn, 1011, 'internal error')
       }
     })
 
     ws.on('close', () => {
-      peers.delete(ws)
+      conn.closed = true
+      conn.ephemeral = null
+      conn.kC2S = null
+      conn.kS2C = null
+      peers.delete(conn.ws)
       broadcastSyncStatus('listening', 'Device disconnected')
     })
 
     ws.on('error', (err) => {
       console.error('Sync WebSocket error:', err)
-      peers.delete(ws)
+      dropConnection(conn, 1011, 'socket error')
     })
-
-    // Tell the client a code is required. No data moves before it authenticates.
-    send(ws, { type: 'hello', version: 3, requiresAuth: true })
   })
 
   wss.on('error', (err) => {
@@ -208,19 +559,19 @@ export function startSyncServer(): void {
   // Drop half-open sockets: a phone that walks out of Wi-Fi never sends a close
   // frame, so its entry in wss.clients (and its buffers) would live forever.
   heartbeat = setInterval(() => {
-    peers.forEach((state, ws) => {
-      if (!state.isAlive) {
+    peers.forEach((conn, ws) => {
+      if (!conn.isAlive) {
         try {
-          ws.terminate()
+          ws.terminate?.()
         } catch {
           /* ignore */
         }
         peers.delete(ws)
         return
       }
-      state.isAlive = false
+      conn.isAlive = false
       try {
-        ws.ping()
+        ws.ping?.()
       } catch {
         /* ignore */
       }
@@ -233,77 +584,12 @@ export function startSyncServer(): void {
       name: SERVICE_NAME,
       type: 'http',
       port: SYNC_PORT,
-      txt: { app: 'wellness-companion', version: '3' }
+      // transport: advisory only — the transcript, not this, is the enforcement.
+      txt: { app: 'wellness-companion', version: '4', proto: X.SYNC_PROTO }
     })
     console.log(`mDNS: advertising ${SERVICE_NAME} on port ${SYNC_PORT}`)
   } catch (err) {
     console.error('mDNS publish failed:', err)
-  }
-}
-
-function handleSyncMessage(ws: WebSocket, msg: any): void {
-  const state = peers.get(ws)
-  if (!state) return
-
-  if (msg?.type === 'auth') {
-    if (tokenMatches(msg.token)) {
-      state.authed = true
-      send(ws, { type: 'auth_ok' })
-      broadcastSyncStatus('connected', 'Phone paired')
-    } else {
-      state.attempts++
-      send(ws, { type: 'auth_failed', attemptsLeft: MAX_AUTH_ATTEMPTS - state.attempts })
-      broadcastSyncStatus('error', 'A device supplied the wrong pairing code')
-      if (state.attempts >= MAX_AUTH_ATTEMPTS) {
-        try {
-          ws.close(4002, 'too many failed attempts')
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    return
-  }
-
-  if (!state.authed) {
-    send(ws, { type: 'auth_required', message: 'Send the pairing code first' })
-    return
-  }
-
-  const db = getDatabase()
-
-  switch (msg.type) {
-    case 'push': {
-      const { inserted, updated, rejected } = ingestEntries(db, msg.entries)
-      ingestAux(db, msg)
-      send(ws, { type: 'push_ack', inserted, updated, rejected })
-      broadcastSyncStatus('synced', `Received: ${inserted} new, ${updated} updated`)
-      break
-    }
-
-    case 'pull': {
-      send(ws, { type: 'pull_response', ...readSince(db, msg.since) })
-      broadcastSyncStatus('synced', 'Sent updates to the phone')
-      break
-    }
-
-    case 'full_sync': {
-      const { inserted, updated, rejected } = ingestEntries(db, msg.entries)
-      ingestAux(db, msg)
-      // `since` keeps this incremental. It used to SELECT * FROM entries and
-      // stringify the whole history on every sync, so peak memory grew with
-      // the log. A client that has never synced still sends 0 and gets all.
-      send(ws, {
-        type: 'full_sync_response',
-        ...readSince(db, msg.since),
-        received: { inserted, updated, rejected }
-      })
-      broadcastSyncStatus('synced', `Full sync: +${inserted} new, ${updated} updated`)
-      break
-    }
-
-    default:
-      send(ws, { type: 'error', message: `Unknown type: ${msg.type}` })
   }
 }
 
@@ -436,16 +722,83 @@ export async function stopSyncServer(): Promise<void> {
   peers.clear()
 }
 
+// transport: ── pairing + device management ─────────────────────────────────
+
+/**
+ * Mint a pairing: a random 128-bit secret pre-registered against a fresh keyId
+ * for 5 minutes. The user types the rendered code into the phone once; that
+ * secret IS the long-term device key, so there is no in-tunnel mint step to
+ * race, and nothing low-entropy ever appears on the wire.
+ */
+export function createPairing(): { keyId: string; code: string; expiresAt: number } {
+  const keyId = randomUUID()
+  const secret = X.randomPairingSecret()
+  const created = Date.now()
+  putPending(keyId, { secret_b64: secret.toString('base64'), created, ttlMs: PAIRING_TTL_MS })
+  // Minting a pairing is an explicit user action, so it clears any lockout an
+  // attacker's failed attempts left behind — otherwise a LAN nuisance could
+  // keep the owner permanently unable to pair.
+  resetBackoff()
+  broadcastSyncStatus('pairing', 'Enter the pairing code on your phone')
+  return { keyId, code: X.encodePairingSecret(secret), expiresAt: created + PAIRING_TTL_MS }
+}
+
+export function listDevices(): Array<{
+  deviceId: string
+  keyId: string
+  label: string
+  lastSeen: number
+}> {
+  return Object.entries(getDeviceKeys())
+    .map(([deviceId, rec]) => ({
+      deviceId,
+      keyId: rec.keyId,
+      label: rec.label,
+      lastSeen: rec.lastSeen
+    }))
+    .sort((a, b) => b.lastSeen - a.lastSeen)
+}
+
+/** Revoke exactly one phone. Others keep syncing. */
+export function removeDevice(deviceId: string): boolean {
+  const removed = removeDeviceKey(deviceId)
+  peers.forEach((conn) => {
+    if (conn.deviceId === deviceId) dropConnection(conn, X.CLOSE_PAIRING_CHANGED, 'pairing removed')
+  })
+  return removed
+}
+
+/**
+ * Last resort: forget ALL devices and every pending pairing, and drop every
+ * socket. Per-device Remove is the normal revocation path.
+ */
+export function regeneratePairingToken(): void {
+  clearPairings()
+  resetBackoff()
+  peers.forEach((conn) => dropConnection(conn, X.CLOSE_PAIRING_CHANGED, 'pairing changed'))
+  broadcastSyncStatus('listening', 'All devices forgotten — pair again to sync')
+}
+
+const SYNC_IPC_CHANNELS = [
+  'sync:getStatus',
+  'sync:getPort',
+  'sync:getLocalIp',
+  'sync:createPairing',
+  'sync:listDevices',
+  'sync:removeDevice',
+  'sync:regeneratePairingToken'
+]
+
 export function registerSyncHandlers(): void {
   ipcMain.handle('sync:getStatus', () => (wss ? 'listening' : 'stopped'))
   ipcMain.handle('sync:getPort', () => SYNC_PORT)
   ipcMain.handle('sync:getLocalIp', () => getLocalIp())
-  ipcMain.handle('sync:getPairingToken', () => getPairingToken())
+  ipcMain.handle('sync:createPairing', () => createPairing())
+  ipcMain.handle('sync:listDevices', () => listDevices())
+  ipcMain.handle('sync:removeDevice', (_e, deviceId: string) => removeDevice(deviceId))
   ipcMain.handle('sync:regeneratePairingToken', () => regeneratePairingToken())
 }
 
 export function unregisterSyncHandlers(): void {
-  ;['sync:getStatus', 'sync:getPort', 'sync:getLocalIp',
-    'sync:getPairingToken', 'sync:regeneratePairingToken'
-  ].forEach((channel) => ipcMain.removeHandler(channel))
+  SYNC_IPC_CHANNELS.forEach((channel) => ipcMain.removeHandler(channel))
 }

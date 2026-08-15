@@ -38,13 +38,27 @@ const llmApi = {
   }
 }
 
+export interface PairedDevice {
+  deviceId: string
+  keyId: string
+  label: string
+  lastSeen: number
+}
+
 const syncApi = {
   getStatus: () => ipcRenderer.invoke('sync:getStatus'),
   getPort: () => ipcRenderer.invoke('sync:getPort'),
   getLocalIp: () => ipcRenderer.invoke('sync:getLocalIp'),
-  // The phone must present this code before any data moves in either direction.
-  getPairingToken: (): Promise<string> => ipcRenderer.invoke('sync:getPairingToken'),
-  regeneratePairingToken: (): Promise<string> =>
+  // Mints a one-time 128-bit pairing secret, rendered as a ~26-character code.
+  // The phone types it once; it becomes that phone's long-term device key.
+  createPairing: (): Promise<{ keyId: string; code: string; expiresAt: number }> =>
+    ipcRenderer.invoke('sync:createPairing'),
+  listDevices: (): Promise<PairedDevice[]> => ipcRenderer.invoke('sync:listDevices'),
+  // Revokes exactly one phone; the others keep syncing.
+  removeDevice: (deviceId: string): Promise<boolean> =>
+    ipcRenderer.invoke('sync:removeDevice', deviceId),
+  // Last resort: forget every paired device.
+  regeneratePairingToken: (): Promise<void> =>
     ipcRenderer.invoke('sync:regeneratePairingToken'),
   onStatusChange: (callback: (info: { status: string; detail?: string }) => void) => {
     const handler = (_event: any, info: any) => callback(info)

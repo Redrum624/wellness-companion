@@ -186,6 +186,218 @@ function pruneBackups(backupDir: string): void {
   }
 }
 
+// transport: ── wc-sync/4 pairing state (spec §2.8) ───────────────────────────
+// Device keys, pending pairing slots and the pairing backoff all live as JSON
+// blobs in the `settings` table, reached through a tiny get/set seam so the
+// state machine can be unit-tested without a database (and so tests can never
+// write a pairing into the user's live wellness.db).
+
+export interface SettingsIO {
+  get(key: string): string | null
+  set(key: string, value: string): void
+}
+
+/** The production seam: the same `settings` table the db:getSetting IPC uses. */
+export const dbSettingsIO: SettingsIO = {
+  get(key: string): string | null {
+    const row: any = getDatabase().prepare('SELECT value FROM settings WHERE key = ?').get(key)
+    return row ? row.value : null
+  },
+  set(key: string, value: string): void {
+    getDatabase()
+      .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .run(key, value)
+  }
+}
+
+export const DEVICE_KEYS_SETTING = 'sync.device_keys'
+export const PENDING_PAIRINGS_SETTING = 'sync.pending_pairings'
+export const PAIR_BACKOFF_SETTING = 'sync.pair_backoff'
+
+/**
+ * Deliberately NOT the same number as MAX_CONNECTIONS: how many phones may stay
+ * paired is a storage question, how many may talk at once is a resource
+ * question. Conflating them evicted trusted devices whenever sockets got busy.
+ */
+export const MAX_STORED_DEVICE_KEYS = 8
+
+/** Failures allowed before any lockout kicks in. */
+export const PAIR_BACKOFF_FREE_ATTEMPTS = 3
+export const PAIR_BACKOFF_BASE_MS = 30_000
+export const PAIR_BACKOFF_MAX_MS = 30 * 60_000
+
+export interface DeviceKeyRecord {
+  keyId: string
+  secret_b64: string
+  label: string
+  created: number
+  lastSeen: number
+}
+
+export interface PendingPairing {
+  secret_b64: string
+  created: number
+  ttlMs: number
+}
+
+export interface BackoffState {
+  failures: number
+  lockedUntil: number
+  lockedOut: boolean
+  lockedForMs: number
+}
+
+/** A corrupt or hand-edited blob must degrade to "no pairings", never throw. */
+function readMap<T>(io: SettingsIO, key: string): Record<string, T> {
+  const raw = io.get(key)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return parsed as Record<string, T>
+  } catch {
+    return {}
+  }
+}
+
+function writeMap(io: SettingsIO, key: string, value: unknown): void {
+  io.set(key, JSON.stringify(value))
+}
+
+export function getDeviceKeys(io: SettingsIO = dbSettingsIO): Record<string, DeviceKeyRecord> {
+  return readMap<DeviceKeyRecord>(io, DEVICE_KEYS_SETTING)
+}
+
+/**
+ * Upsert BY deviceId. A phone that re-pairs replaces its own slot, so a device
+ * can never accumulate orphaned entries or leave a stale keyId behind. When the
+ * cap is reached the least-recently-seen device is evicted.
+ */
+export function upsertDeviceKey(
+  deviceId: string,
+  record: DeviceKeyRecord,
+  io: SettingsIO = dbSettingsIO
+): void {
+  const keys = getDeviceKeys(io)
+  keys[deviceId] = record
+  const ids = Object.keys(keys)
+  if (ids.length > MAX_STORED_DEVICE_KEYS) {
+    ids
+      .sort((a, b) => (keys[a]?.lastSeen ?? 0) - (keys[b]?.lastSeen ?? 0))
+      .slice(0, ids.length - MAX_STORED_DEVICE_KEYS)
+      .forEach((id) => delete keys[id])
+  }
+  writeMap(io, DEVICE_KEYS_SETTING, keys)
+}
+
+export function removeDeviceKey(deviceId: string, io: SettingsIO = dbSettingsIO): boolean {
+  const keys = getDeviceKeys(io)
+  if (!keys[deviceId]) return false
+  delete keys[deviceId]
+  writeMap(io, DEVICE_KEYS_SETTING, keys)
+  return true
+}
+
+/** Last resort: forget every paired device and every half-finished pairing. */
+export function clearPairings(io: SettingsIO = dbSettingsIO): void {
+  writeMap(io, DEVICE_KEYS_SETTING, {})
+  writeMap(io, PENDING_PAIRINGS_SETTING, {})
+}
+
+/** Reads pending slots, pruning expired ones from storage as a side effect. */
+export function getPending(
+  now: number = Date.now(),
+  io: SettingsIO = dbSettingsIO
+): Record<string, PendingPairing> {
+  const pending = readMap<PendingPairing>(io, PENDING_PAIRINGS_SETTING)
+  const live: Record<string, PendingPairing> = {}
+  let pruned = false
+  for (const [keyId, slot] of Object.entries(pending)) {
+    if (slot && now - slot.created <= slot.ttlMs) live[keyId] = slot
+    else pruned = true
+  }
+  if (pruned) writeMap(io, PENDING_PAIRINGS_SETTING, live)
+  return live
+}
+
+export function putPending(
+  keyId: string,
+  slot: PendingPairing,
+  io: SettingsIO = dbSettingsIO
+): void {
+  const pending = getPending(slot.created, io)
+  pending[keyId] = slot
+  writeMap(io, PENDING_PAIRINGS_SETTING, pending)
+}
+
+/**
+ * A completed first handshake promotes the pending slot to a permanent device
+ * key. The secret is unchanged — it was delivered out-of-band and both sides
+ * already held it, so there is no in-tunnel mint step to race or lose.
+ */
+export function bindPending(
+  keyId: string,
+  deviceId: string,
+  label: string,
+  now: number = Date.now(),
+  io: SettingsIO = dbSettingsIO
+): DeviceKeyRecord | null {
+  const pending = getPending(now, io)
+  const slot = pending[keyId]
+  if (!slot) return null
+
+  const record: DeviceKeyRecord = {
+    keyId,
+    secret_b64: slot.secret_b64,
+    label,
+    created: slot.created,
+    lastSeen: now
+  }
+  upsertDeviceKey(deviceId, record, io)
+  delete pending[keyId]
+  writeMap(io, PENDING_PAIRINGS_SETTING, pending)
+  return record
+}
+
+/**
+ * Pairing backoff is persistent and global, not per socket: a per-socket
+ * counter resets on reconnect, which is no throttle at all.
+ */
+export function getBackoff(now: number = Date.now(), io: SettingsIO = dbSettingsIO): BackoffState {
+  const raw = io.get(PAIR_BACKOFF_SETTING)
+  let failures = 0
+  let lockedUntil = 0
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      failures = Number.isFinite(parsed?.failures) ? Number(parsed.failures) : 0
+      lockedUntil = Number.isFinite(parsed?.lockedUntil) ? Number(parsed.lockedUntil) : 0
+    } catch {
+      /* corrupt blob: start clean rather than lock the user out forever */
+    }
+  }
+  return {
+    failures,
+    lockedUntil,
+    lockedOut: lockedUntil > now,
+    lockedForMs: Math.max(0, lockedUntil - now)
+  }
+}
+
+export function bumpBackoff(now: number = Date.now(), io: SettingsIO = dbSettingsIO): BackoffState {
+  const failures = getBackoff(now, io).failures + 1
+  const over = failures - PAIR_BACKOFF_FREE_ATTEMPTS
+  const lockedUntil =
+    over <= 0 ? 0 : now + Math.min(PAIR_BACKOFF_BASE_MS * 2 ** (over - 1), PAIR_BACKOFF_MAX_MS)
+  io.set(PAIR_BACKOFF_SETTING, JSON.stringify({ failures, lockedUntil, lastFailure: now }))
+  return getBackoff(now, io)
+}
+
+export function resetBackoff(io: SettingsIO = dbSettingsIO): void {
+  io.set(PAIR_BACKOFF_SETTING, JSON.stringify({ failures: 0, lockedUntil: 0, lastFailure: 0 }))
+}
+// transport: ── end wc-sync/4 pairing state ─────────────────────────────────
+
 export function registerDatabaseHandlers(): void {
   // Entries
   ipcMain.handle('db:getEntriesByDate', (_e, date: string) => {
