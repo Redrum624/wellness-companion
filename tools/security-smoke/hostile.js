@@ -73,11 +73,11 @@ function sendSealed(obj) {
 
 ws.on('open', () => {
   log(`connected to ${URL}`)
-  if (MODE === 'v3-auth') sendText({ type: 'auth', token: args[0] || 'RFWVH9QA' })
+  if (MODE === 'v3-auth') sendText({ type: 'auth', token: args[0] || 'DUMMYTOK' }) // Dummy token; the desktop tombstones any legacy auth frame without validating
   if (MODE === 'v3-fullsync') sendText({ type: 'full_sync', since: 0, entries: [poisonEntry] })
   if (MODE === 'v3-push') sendText({ type: 'push', entries: [poisonEntry] })
   if (MODE === 'v3-auth-then-fullsync') {
-    sendText({ type: 'auth', token: args[0] || 'RFWVH9QA' })
+    sendText({ type: 'auth', token: args[0] || 'DUMMYTOK' }) // Dummy token; the desktop tombstones any legacy auth frame without validating
     sendText({ type: 'full_sync', since: 0, entries: [poisonEntry] })
   }
 })
