@@ -2,7 +2,10 @@
 
 All notable changes to Wellness Companion are documented here.
 
-## [Unreleased]
+## [1.3.0] - 2026-08-15
+
+The security release: sync traffic and both local databases are now encrypted, and the phone build
+has a guided path to real release signing. **Upgrading users must re-pair their phone once.**
 
 ### Added
 
