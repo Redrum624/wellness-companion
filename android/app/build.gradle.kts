@@ -77,6 +77,23 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Puts the shared crypto test-vector fixture (shared/crypto-vectors.json,
+    // repo-root-relative) onto the pure-JVM unit-test classpath as a raw
+    // resource, so VectorsSmokeTest (and Task 2's real derivation tests) can
+    // read it via `javaClass.classLoader.getResourceAsStream(...)`.
+    sourceSets {
+        getByName("test") {
+            resources.srcDir("$rootDir/../shared")
+        }
+    }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+            isIncludeAndroidResources = false
+        }
+    }
 }
 
 dependencies {
@@ -115,4 +132,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.hilt:hilt-work:1.2.0")
     ksp("androidx.hilt:hilt-compiler:1.2.0")
+
+    // Unit tests (pure JVM, src/test) — security-hardening crypto suites.
+    testImplementation("junit:junit:4.13.2")
 }
