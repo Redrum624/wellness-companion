@@ -585,10 +585,17 @@ class SyncManager @Inject constructor(
                     val expected = SyncCrypto.macTag(keys.km, SyncCrypto.ROLE_SERVER, th)
                     if (!SyncCrypto.constantTimeEqual(presented, expected)) {
                         // Either the PC holds a different key for this pairing,
-                        // or something on the LAN is impersonating it. Nothing
-                        // sensitive left the phone (hs1 is an ephemeral public
-                        // key and a nonce), and the device key is KEPT — the
-                        // user decides whether to re-pair.
+                        // or something on the LAN is impersonating it. hs1 sent
+                        // more than an ephemeral key and a nonce — it also
+                        // carries keyId, deviceId and deviceName (see the hs1
+                        // JSONObject above) — but none of it is credential
+                        // material: keyId/deviceId are lookup identifiers, not
+                        // secrets, and the deviceName exposure is the
+                        // documented residual in SECURITY.md ("the phone's
+                        // device name is visible before authentication
+                        // completes"). No entry data and no pairing secret
+                        // left the phone. The device key is KEPT — the user
+                        // decides whether to re-pair.
                         webSocket.close(1002, "server authentication failed")
                         return finishRepair(webSocket, MSG_PC_NOT_RECOGNISED)
                     }

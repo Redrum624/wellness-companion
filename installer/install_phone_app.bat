@@ -118,15 +118,57 @@ if not errorlevel 1 (
     echo   [OK] Wellness Companion is already on this phone - updating in place.
     echo        Your tracked data stays on the phone.
 )
+
+:: --- Version-match notice: this build's encrypted sync (wc-sync/4) has no
+::     plaintext fallback, so a phone and desktop on different versions simply
+::     cannot sync with each other. Markers are written by build_installer.bat
+::     and staged here by wellness_setup.iss; degrade to "unknown" rather than
+::     fail when install_phone_app.bat is run outside a full installer build.
+set "APP_VERSION=unknown"
+if exist "%~dp0app-version.txt" set /p APP_VERSION=<"%~dp0app-version.txt"
+set "APK_SIGNING=debug"
+if exist "%~dp0apk-signing.txt" set /p APK_SIGNING=<"%~dp0apk-signing.txt"
+echo.
+echo   Desktop app version: %APP_VERSION%
+echo   Phone APK version:   %APP_VERSION% ^(%APK_SIGNING%-signed^)
+echo   Both apps must be on the same version to sync.
+echo.
+
 "%ADB%" shell am force-stop %PACKAGE% >nul 2>&1
-"%ADB%" install -r "%APK%"
-if errorlevel 1 (
+:: Captured (not streamed straight to the console) so the signature-mismatch
+:: banner below can be selected precisely instead of guessed from errorlevel.
+set "INSTALL_LOG=%TEMP%\wc_install_result_%RANDOM%.txt"
+"%ADB%" install -r "%APK%" > "%INSTALL_LOG%" 2>&1
+set "INSTALL_RC=%ERRORLEVEL%"
+type "%INSTALL_LOG%"
+findstr /i /c:"INSTALL_FAILED_UPDATE_INCOMPATIBLE" /c:"signatures do not match" "%INSTALL_LOG%" >nul
+set "SIG_MISMATCH=%ERRORLEVEL%"
+del /q "%INSTALL_LOG%" 2>nul
+
+if not "%INSTALL_RC%"=="0" (
     echo.
-    echo   [ERROR] Install failed - see the ADB output above.
-    echo           A signature mismatch means a build from another PC is installed.
-    echo           Do NOT uninstall it before syncing: uninstalling deletes the
-    echo           phone's data. Open the desktop app, sync the phone, and only
-    echo           then uninstall the old app and rerun this installer.
+    if "%SIG_MISMATCH%"=="0" (
+        :: A debug-signed phone meeting a release-signed build ^(or vice
+        :: versa^) is a DIFFERENT app to Android - it refuses to install over
+        :: the existing one. Never auto-uninstall here: uninstalling wipes the
+        :: phone's local database, so the phone must sync everything to the
+        :: desktop FIRST.
+        echo   [ERROR] This phone has a differently-signed copy installed -
+        echo           installing over it is blocked to protect your data.
+        echo           Do this, in order:
+        echo.
+        echo             1. Open the desktop app.
+        echo             2. On the phone, sync fully - everything on the phone
+        echo                must reach the desktop before anything is removed.
+        echo             3. Uninstall the old app from the phone.
+        echo             4. Run this installer again to put the new APK on.
+        echo             5. Re-pair the phone and sync once more.
+        echo.
+        echo           Details: docs\signing-guide.md, "Moving an existing
+        echo           phone across".
+    ) else (
+        echo   [ERROR] Install failed - see the ADB output above.
+    )
     echo.
     pause
     exit /b 1

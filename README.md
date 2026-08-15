@@ -171,6 +171,12 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 > Then `gradlew.bat assembleRelease`. The installer prefers `app-release.apk` when it exists and
 > falls back to the debug build with a warning otherwise. `keystore.properties`, `*.jks` and
 > `*.keystore` are gitignored — signing material must never be committed.
+>
+> Full walkthrough (backup/loss guidance included): [docs/signing-guide.md](docs/signing-guide.md).
+> Moving a phone that already has the debug build installed? See
+> [Migrating an existing phone to a release-signed build](#migrating-an-existing-phone-to-a-release-signed-build)
+> below — installing a release build over a debug one needs an extra step so it doesn't wipe the
+> phone's data.
 
 **2. That's it** — the phone app works on its own. Stop here if you don't want the desktop half.
 
@@ -191,6 +197,31 @@ the desktop before you ever remove it.
 The desktop app takes a snapshot of `wellness.db` on the first launch after the version changes and
 keeps the last five under `%APPDATA%\wellness-companion\backups\`. Nothing is deleted from your
 database by an update — the snapshot is there for the case where something later goes wrong.
+
+**Update both apps together.** This app's sync (`wc-sync/4`) is encrypted with no plaintext
+fallback, so a phone left on an older version simply cannot sync with an updated desktop — it gets
+a tombstone reply and zero rows move. The installer's "Update the app on my phone too" task is
+therefore **checked by default**; if you skip it, the desktop shows a banner as soon as an old phone
+tries to sync ("Your phone app is older than this PC app. Open 'Install the phone app' from the
+Start Menu to update it."), and the phone side shows its own "update the desktop" prompt if the
+version is reversed. `install_phone_app.bat` also prints both apps' versions before installing so
+a mismatch is visible up front.
+
+#### Migrating an existing phone to a release-signed build
+
+A release-signed APK (see the signing callout under [Get the apps](#get-the-apps) above, or the
+full [signing guide](docs/signing-guide.md)) has a **different signature** than the debug build
+most phones start with, so Android refuses to install it over the existing app
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) rather than silently overwriting it — and uninstalling first
+would delete the phone's local data before it ever reached the desktop. `install_phone_app.bat`
+detects this exact failure and stops before doing anything destructive. Do this instead, in order:
+
+1. Open the desktop app.
+2. On the phone, sync fully — everything on the phone must reach the desktop before anything is
+   removed.
+3. Uninstall the old app from the phone.
+4. Run `install_phone_app.bat` (or the installer) again to put the release APK on.
+5. Re-pair the phone and sync once more.
 
 ---
 

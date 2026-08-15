@@ -60,11 +60,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
     GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
-; Unchecked by default: needs a phone plugged in with USB-debugging on, so it
-; would fail noisily for the majority who install the desktop app on its own.
+; Checked by default: this build's encrypted sync (wc-sync/4) has no plaintext
+; fallback, so a phone left on the previous version simply cannot sync with
+; this desktop after install. Still a task, not a forced step - a phone may
+; not be present at install time - so the user CAN uncheck it.
 Name: "installandroid"; \
-    Description: "Install the Wellness Companion app on my phone now (phone must be connected by USB with USB-debugging enabled)"; \
-    GroupDescription: "Android app:"; Flags: unchecked
+    Description: "Update the app on my phone too (required — this version's encrypted sync only works when both apps are updated; phone must be connected by USB with USB-debugging enabled)"; \
+    GroupDescription: "Android app:"; Flags: checkedonce
 
 ; Only meaningful for the lean installer; the offline build already carries the
 ; model, and ShouldSkipPage/Check below hide the choice when it cannot apply.
@@ -81,6 +83,22 @@ Source: "{#RepoRoot}\windows\dist\win-unpacked\*"; DestDir: "{app}"; \
 Source: "{#SourcePath}\setup_model.ps1";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourcePath}\install_phone_app.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourcePath}\icon\wellness.ico";     DestDir: "{app}"; Flags: ignoreversion
+
+; --- Build markers written by build_installer.bat: which key signed the APK
+;     (release/debug) and the version it was built at. install_phone_app.bat
+;     reads both from {app} so it never has to re-derive them (no aapt, no
+;     gradle) on a machine that only has the installed folder. Guarded by
+;     FileExists so ISCC can still be invoked directly without a prior
+;     build_installer.bat run - install_phone_app.bat degrades gracefully
+;     when they are absent.
+#define SigningMarker SourcePath + "\apk-signing.txt"
+#define VersionMarker SourcePath + "\app-version.txt"
+#if FileExists(SigningMarker)
+Source: "{#SigningMarker}"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists(VersionMarker)
+Source: "{#VersionMarker}"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 
 ; --- Android APK -> where install_phone_app.bat looks for it ---
 ;     Prefer a release build. A debug APK is debuggable and signed with the

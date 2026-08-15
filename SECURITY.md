@@ -27,9 +27,9 @@ sensitive data.
 - **Residual — a stolen device key allows a future MITM until you re-pair.** This is inherent to
   symmetric-key authentication: whoever holds the key can impersonate that device until the key is
   invalidated. Mitigated by per-device revocation (desktop sidebar, **Paired devices → Remove**).
-  A "forget every device at once" capability exists underneath (`regeneratePairingToken`) as a
-  last resort for a broader compromise, but as of this writing it is not yet exposed by any button
-  in the desktop UI — Remove is the only control you can actually reach today.
+  For a broader compromise, **Forget all devices** (desktop sidebar, below the paired-devices list,
+  two-click confirmation) revokes every phone at once via `regeneratePairingToken` — every device
+  must re-pair afterwards.
 - **Residual — LAN availability is not defended.** An attacker already on your LAN (mDNS spoofing,
   ARP tricks) can deny sync — block it, delay it, make it fail. They cannot read or forge your
   data, and they cannot force your phone to drop its pairing: forgetting a device only ever

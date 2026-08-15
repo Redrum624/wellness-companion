@@ -62,6 +62,13 @@ export default function Sidebar() {
   // transcribe a second string.
   const [pairing, setPairing] = useState<string | null>(null)
   const [devices, setDevices] = useState<PairedDevice[]>([])
+  // Sticky, unlike syncDetail: a version mismatch stays on screen until either
+  // a sync actually succeeds (proof the phone was updated) or the app
+  // restarts — a status line that keeps getting overwritten by the next
+  // "listening"/"pairing" broadcast would flash past before anyone reads it.
+  const [versionMismatch, setVersionMismatch] = useState(false)
+  // Two-step so a stray click can't nuke every paired phone at once.
+  const [confirmingForgetAll, setConfirmingForgetAll] = useState(false)
 
   const refreshDevices = (): void => {
     window.sync.listDevices().then(setDevices)
@@ -81,6 +88,15 @@ export default function Sidebar() {
     const unsub = window.sync.onStatusChange((info) => {
       if (!alive) return
       setSyncDetail(info.detail || info.status)
+      // The server has no dedicated "update_required" status — it broadcasts
+      // the v3-tombstone case as a generic 'error' with this detail text (see
+      // sync-server.ts's tombstoneLegacyFrame, close code 4005). Match on it
+      // rather than inventing a new status the main process doesn't send.
+      if (info.status === 'error' && info.detail?.toLowerCase().includes('outdated')) {
+        setVersionMismatch(true)
+      } else if (info.status === 'connected' || info.status === 'synced') {
+        setVersionMismatch(false)
+      }
       // A completed handshake updates lastSeen (and can bind a new device).
       if (info.status === 'connected') refreshDevices()
     })
@@ -96,6 +112,17 @@ export default function Sidebar() {
 
   const removeDevice = (deviceId: string): void => {
     window.sync.removeDevice(deviceId).then(refreshDevices)
+  }
+
+  const forgetAllDevices = (): void => {
+    if (!confirmingForgetAll) {
+      setConfirmingForgetAll(true)
+      return
+    }
+    window.sync.regeneratePairingToken().then(() => {
+      setConfirmingForgetAll(false)
+      refreshDevices()
+    })
   }
 
   return (
@@ -129,6 +156,22 @@ export default function Sidebar() {
 
       {/* Sync status at bottom */}
       <div style={{ marginTop: 'auto', padding: '12px 12px 4px' }}>
+        {/* Persistent — stays up until a real sync succeeds, unlike syncDetail
+            below which gets overwritten by whatever the server broadcasts next. */}
+        {versionMismatch && (
+          <div
+            role="alert"
+            style={{
+              fontSize: 11, fontWeight: 600, color: '#7A1F1F',
+              background: '#F8D7DA', border: '1px solid #E4A5AA',
+              borderRadius: 8, padding: '8px 10px', marginBottom: 8,
+              lineHeight: 1.4
+            }}
+          >
+            Your phone app is older than this PC app. Open &ldquo;Install the phone app&rdquo; from
+            the Start Menu to update it.
+          </div>
+        )}
         <div style={{ fontSize: 10, color: '#3D326260', marginBottom: 2 }}>Phone sync</div>
         <div style={{
           fontSize: 12, fontWeight: 600, color: '#3D3262',
@@ -204,6 +247,51 @@ export default function Sidebar() {
               </button>
             </div>
           ))
+        )}
+        {/* Last resort: wipes every paired device at once (regeneratePairingToken).
+            Per-device Remove above is the normal path; this is for "I think my
+            pairing secrets are compromised" — hence the destructive styling and
+            the two-click confirmation, so a stray click can't strand every phone. */}
+        {devices.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            {confirmingForgetAll ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={forgetAllDevices}
+                  title="This cannot be undone — every phone will need to re-pair"
+                  style={{
+                    flex: 1, padding: '6px 10px', fontSize: 10, fontWeight: 700,
+                    color: '#fff', background: '#B3261E', border: 'none',
+                    borderRadius: 8, cursor: 'pointer'
+                  }}
+                >
+                  Confirm: forget all {devices.length} device{devices.length === 1 ? '' : 's'}
+                </button>
+                <button
+                  onClick={() => setConfirmingForgetAll(false)}
+                  style={{
+                    padding: '6px 10px', fontSize: 10, fontWeight: 600,
+                    color: '#3D3262', background: 'rgba(255,255,255,0.45)',
+                    border: 'none', borderRadius: 8, cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={forgetAllDevices}
+                title="Forget every paired device — each phone must re-pair to sync again"
+                style={{
+                  width: '100%', padding: '6px 10px', fontSize: 10, fontWeight: 600,
+                  color: '#B3261E', background: 'transparent',
+                  border: '1px solid #B3261E60', borderRadius: 8, cursor: 'pointer'
+                }}
+              >
+                Forget all devices
+              </button>
+            )}
+          </div>
         )}
         {syncDetail && (
           <div style={{ fontSize: 9, color: '#3D326250', marginTop: 3 }}>{syncDetail}</div>

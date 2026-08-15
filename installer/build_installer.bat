@@ -6,7 +6,11 @@ setlocal enabledelayedexpansion
 ::  Steps:
 ::    0. Clean installer\output (no stale, version-stamped installers pile up).
 ::    1. Ensure vc_redist.x64.exe is present (downloaded from aka.ms if missing).
-::    2. Build the Android debug APK (gradlew assembleDebug) if it is missing.
+::    2. Build the Android APK if it is missing: assembleRelease when
+::       android\keystore.properties exists, else assembleDebug. Writes
+::       apk-signing.txt (release/debug) and app-version.txt (this build's
+::       version) so the installer and install_phone_app.bat can read them
+::       without re-deriving anything.
 ::    3. Build the Electron app  (electron-vite build + electron-builder --dir),
 ::       producing windows\dist\win-unpacked\ — NOT an installer.
 ::    4. Generate installer\icon\wellness.ico from the app PNG if missing.
@@ -44,7 +48,7 @@ set "WIN_DIR=%REPO_ROOT%\windows"
 set "PKG_JSON=%WIN_DIR%\package.json"
 set "ISS=%INSTALLER_DIR%wellness_setup.iss"
 set "VCREDIST=%REPO_ROOT%\vc_redist.x64.exe"
-set "APK=%REPO_ROOT%\android\app\build\outputs\apk\debug\app-debug.apk"
+set "KEYSTORE_PROPS=%REPO_ROOT%\android\keystore.properties"
 set "UNPACKED=%WIN_DIR%\dist\win-unpacked"
 set "APP_EXE=%UNPACKED%\Wellness Companion.exe"
 set "ICON_PNG=%WIN_DIR%\resources\icon.png"
@@ -142,13 +146,26 @@ if exist "%VCREDIST%" (
 echo.
 
 :: --------------------------------------------------
-:: Step 2: Android debug APK
+:: Step 2: Android APK - release when a signing keystore is present, else debug
 :: --------------------------------------------------
-echo [2/6] Android debug APK...
+:: A release build has a DIFFERENT signature than the debug build (Android's
+:: universally-known debug key vs. the user's own keystore.properties), so the
+:: two are tracked at their own, separate output paths - no ambiguity about
+:: which one a stale file left behind belongs to.
+if exist "%KEYSTORE_PROPS%" (
+    set "GRADLE_TASK=assembleRelease"
+    set "APK=%REPO_ROOT%\android\app\build\outputs\apk\release\app-release.apk"
+    set "APK_SIGNING=release"
+) else (
+    set "GRADLE_TASK=assembleDebug"
+    set "APK=%REPO_ROOT%\android\app\build\outputs\apk\debug\app-debug.apk"
+    set "APK_SIGNING=debug"
+)
+echo [2/6] Android APK ^(!GRADLE_TASK!^)...
 if exist "%APK%" (
     echo   [OK] APK already present.
 ) else (
-    echo   APK missing - building with gradlew assembleDebug...
+    echo   APK missing - building with gradlew !GRADLE_TASK!...
     if not exist "%REPO_ROOT%\android\gradlew.bat" (
         echo   [ERROR] android\gradlew.bat not found - cannot build the APK.
         exit /b 1
@@ -158,7 +175,7 @@ if exist "%APK%" (
     :: makes it fail outright), and this branch only runs on a clean clone where
     :: the APK is absent — so the failure never showed up in an incremental build.
     pushd "%REPO_ROOT%\android"
-    call "%REPO_ROOT%\android\gradlew.bat" assembleDebug --console=plain
+    call "%REPO_ROOT%\android\gradlew.bat" !GRADLE_TASK! --console=plain
     set "GRADLE_RC=!ERRORLEVEL!"
     popd
     if not "!GRADLE_RC!"=="0" (
@@ -169,8 +186,17 @@ if exist "%APK%" (
         echo   [ERROR] Gradle finished but the APK is not at %APK%.
         exit /b 1
     )
-    echo   [OK] APK built.
+    echo   [OK] APK built ^(!APK_SIGNING!-signed^).
 )
+if "!APK_SIGNING!"=="debug" (
+    echo   [WARN] No android\keystore.properties - shipping the DEBUG-signed APK.
+    echo          See docs\signing-guide.md to create a release keystore.
+)
+:: Marker files staged into the installer by wellness_setup.iss, then read by
+:: install_phone_app.bat at %~dp0 (i.e. {app}) - never regenerated on the fly
+:: there, since the installed folder has no gradle/adb to derive them from.
+> "%INSTALLER_DIR%apk-signing.txt" echo !APK_SIGNING!
+> "%INSTALLER_DIR%app-version.txt" echo %APPVER%
 echo.
 
 :: --------------------------------------------------

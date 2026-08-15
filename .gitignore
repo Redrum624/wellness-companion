@@ -43,5 +43,9 @@ android/keystore.properties
 *.jks
 *.keystore
 
+# --- Installer build markers (regenerated every build_installer.bat run) ---
+installer/apk-signing.txt
+installer/app-version.txt
+
 # --- TypeScript incremental build info ---
 *.tsbuildinfo

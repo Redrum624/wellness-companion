@@ -22,8 +22,9 @@ All notable changes to Wellness Companion are documented here.
   phone short of changing the password for all of them. Fix: pairing now delivers one 33-character
   code (e.g. `CPR38-KAHBY-4EBBB-QPG9N-B4WFR-HXTY9-NNT`) that becomes that phone's own 128-bit key,
   and the desktop sidebar lists every paired device with a last-seen time and its own **Remove**,
-  so revoking one phone doesn't mean forgetting the rest. A "forget every device at once" capability
-  (`regeneratePairingToken`) is wired end-to-end but not yet exposed by any button in the UI.
+  so revoking one phone doesn't mean forgetting the rest. A **Forget all devices** button (below
+  the paired-devices list, destructive styling, two-click confirmation) revokes every phone at once
+  via `regeneratePairingToken`, for a broader-compromise last resort.
   Affects: `windows/src/renderer/src/components/Sidebar.tsx`, `windows/src/preload/index.ts`,
   `windows/src/main/sync-server.ts`, `windows/src/main/database.ts`.
 - **Encrypted local databases, on both platforms, with non-bricking migration.** The desktop
