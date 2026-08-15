@@ -324,23 +324,65 @@ object SyncCrypto {
     /**
      * 31 glyphs, excluding 0/O/1/I/L — the pairs people misread copying a code
      * off a screen. NOT a secret; the entropy is in the 16 random bytes it
-     * encodes. Base-31, big-endian, fixed width 26 glyphs — the abolished
-     * ~40-bit 8-character code must never come back.
+     * carries.
      */
     const val PAIRING_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // gitleaks:allow
-    /** ceil(128 / log2(31)) = 26 glyphs carry the full 128-bit secret. */
-    const val PAIRING_CODE_LENGTH = 26
-
-    private val PAIRING_RADIX = BigInteger.valueOf(PAIRING_ALPHABET.length.toLong())
-    private val MAX_SECRET = BigInteger.ONE.shiftLeft(PAIRING_SECRET_BYTES * 8)
-    private val SEPARATORS = Regex("[\\s-]")
 
     /**
-     * Decode a typed pairing code back to the desktop's 16 random bytes.
-     * Dashes, whitespace and case are ignored. Error messages deliberately
-     * never quote the offending character — the code is secret material.
+     * The pairing code carries `keyId(4) ‖ secret(16)` — ONE string for the
+     * user, never a lookup handle plus a secret to transcribe separately. (The
+     * first cut of this design paired a 36-char UUID keyId with a 26-char
+     * secret: ~62 characters for the single interaction that makes sync work.)
+     *
+     * `keyId` is a public lookup handle with no entropy requirement; a
+     * collision is harmless because the wrong secret simply fails the MAC into
+     * the existing `4006 repair_required` recovery. The SECRET is still 128
+     * bits — that floor does not move, and the abolished ~40-bit code must
+     * never come back.
      */
-    fun decodePairingCode(code: String): ByteArray {
+    const val PAIRING_KEY_ID_BYTES = 4
+    const val PAIRING_CODE_BYTES = PAIRING_KEY_ID_BYTES + PAIRING_SECRET_BYTES // 20
+    /** ceil(160 / log2(31)) = 33 glyphs carry all 20 bytes (31^33 > 2^160). */
+    const val PAIRING_CODE_LENGTH = 33
+    private const val PAIRING_GROUP = 5
+
+    private val PAIRING_RADIX = BigInteger.valueOf(PAIRING_ALPHABET.length.toLong())
+    private val MAX_CODE_VALUE = BigInteger.ONE.shiftLeft(PAIRING_CODE_BYTES * 8)
+    private val SEPARATORS = Regex("[\\s-]")
+    private val KEY_ID_FORMAT = Regex("^[0-9a-f]{8}$")
+
+    /** What one typed code resolves to. `keyId` is the wire form used in `hs1`. */
+    class PairingCodeParts(val keyId: String, val secret: ByteArray)
+
+    /**
+     * Render `keyId ‖ secret` as one fixed-width, dash-grouped base-31 code:
+     * big-endian over the 20 bytes, 33 glyphs, grouped 5-5-5-5-5-5-3. The phone
+     * never shows a code to the user; this exists so the decoder can be pinned
+     * against the desktop's rendering, byte-identically, in the vector suite.
+     */
+    fun encodePairingCode(keyId: String, secret: ByteArray): String {
+        require(KEY_ID_FORMAT.matches(keyId)) { "keyId must be 8 lowercase hex characters" }
+        require(secret.size == PAIRING_SECRET_BYTES) {
+            "pairing secret must be $PAIRING_SECRET_BYTES bytes"
+        }
+        var value = BigInteger(keyId + secret.joinToString("") { "%02x".format(it) }, 16)
+        val glyphs = CharArray(PAIRING_CODE_LENGTH)
+        for (i in PAIRING_CODE_LENGTH - 1 downTo 0) {
+            val divRem = value.divideAndRemainder(PAIRING_RADIX)
+            glyphs[i] = PAIRING_ALPHABET[divRem[1].toInt()]
+            value = divRem[0]
+        }
+        check(value.signum() == 0) { "pairing code overflowed its length" }
+        return String(glyphs).chunked(PAIRING_GROUP).joinToString("-")
+    }
+
+    /**
+     * Decode a typed pairing code back to the desktop's `keyId` and 16 random
+     * bytes. Dashes, whitespace and case are ignored. Error messages
+     * deliberately never quote the offending character — the code is secret
+     * material.
+     */
+    fun decodePairingCode(code: String): PairingCodeParts {
         val cleaned = code.trim().uppercase().replace(SEPARATORS, "")
         require(cleaned.length == PAIRING_CODE_LENGTH) {
             "The pairing code is $PAIRING_CODE_LENGTH characters"
@@ -351,11 +393,16 @@ object SyncCrypto {
             require(index >= 0) { "The pairing code has a character that is not on the code chart" }
             value = value.multiply(PAIRING_RADIX).add(BigInteger.valueOf(index.toLong()))
         }
-        require(value < MAX_SECRET) { "That is not a valid pairing code" }
+        require(value < MAX_CODE_VALUE) { "That is not a valid pairing code" }
+        // Fixed width: an all-zero code must yield 20 zero bytes, never a short
+        // array that would silently shift keyId and secret into each other.
         val magnitude = value.toByteArray() // may carry a leading 0x00 sign byte
-        val take = minOf(magnitude.size, PAIRING_SECRET_BYTES)
-        val out = ByteArray(PAIRING_SECRET_BYTES)
-        magnitude.copyInto(out, PAIRING_SECRET_BYTES - take, magnitude.size - take, magnitude.size)
-        return out
+        val take = minOf(magnitude.size, PAIRING_CODE_BYTES)
+        val bytes = ByteArray(PAIRING_CODE_BYTES)
+        magnitude.copyInto(bytes, PAIRING_CODE_BYTES - take, magnitude.size - take, magnitude.size)
+        return PairingCodeParts(
+            keyId = bytes.copyOfRange(0, PAIRING_KEY_ID_BYTES).joinToString("") { "%02x".format(it) },
+            secret = bytes.copyOfRange(PAIRING_KEY_ID_BYTES, PAIRING_CODE_BYTES)
+        )
     }
 }

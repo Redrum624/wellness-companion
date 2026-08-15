@@ -183,14 +183,13 @@ fun DashboardScreen(
                         is SyncStatus.Error -> (syncStatus as SyncStatus.Error).message
                         is SyncStatus.NeedsRepair -> (syncStatus as SyncStatus.NeedsRepair).message
                         is SyncStatus.NeedsPairing ->
-                            "Tap Pair, then enter the key id and code shown in the PC app's sidebar"
+                            "Enter the pairing code shown in the PC app's sidebar"
                         else -> null
                     }
 
                     // Pairing. The PC refuses every handshake until the phone
                     // proves it holds the 128-bit secret behind this code, so
                     // nothing leaves the phone before it is set.
-                    val pairingKeyId by syncViewModel.pairingKeyId.collectAsState()
                     val pairingCode by syncViewModel.pairingCode.collectAsState()
                     val isPaired by syncViewModel.isPaired.collectAsState()
                     val pairingFormOpen by syncViewModel.pairingFormOpen.collectAsState()
@@ -238,31 +237,7 @@ fun DashboardScreen(
                     }
 
                     if (pairingFormOpen) {
-                        androidx.compose.foundation.text.BasicTextField(
-                            value = pairingKeyId,
-                            onValueChange = { syncViewModel.setPairingKeyId(it) },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.labelSmall.copy(color = GreetingColor),
-                            modifier = Modifier
-                                .padding(horizontal = 20.dp)
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.White.copy(alpha = 0.25f))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            decorationBox = { innerTextField ->
-                                if (pairingKeyId.isEmpty()) {
-                                    Text(
-                                        "Key id shown under the code on the PC",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = GreetingColor.copy(alpha = 0.4f)
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
+                        // ONE field: the code carries the key id and the secret.
                         Row(
                             modifier = Modifier
                                 .padding(horizontal = 20.dp)
@@ -274,9 +249,11 @@ fun DashboardScreen(
                                 value = pairingCode,
                                 onValueChange = { syncViewModel.setPairingCode(it) },
                                 singleLine = true,
+                                // 33 glyphs plus 6 dashes: keep the tracking tight
+                                // enough that the whole code stays readable.
                                 textStyle = MaterialTheme.typography.labelSmall.copy(
                                     color = GreetingColor,
-                                    letterSpacing = 2.sp
+                                    letterSpacing = 0.5.sp
                                 ),
                                 modifier = Modifier
                                     .weight(1f)
@@ -286,7 +263,7 @@ fun DashboardScreen(
                                 decorationBox = { innerTextField ->
                                     if (pairingCode.isEmpty()) {
                                         Text(
-                                            "26-character pairing code",
+                                            "Pairing code from the PC",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = GreetingColor.copy(alpha = 0.4f)
                                         )

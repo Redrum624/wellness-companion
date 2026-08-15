@@ -29,11 +29,11 @@ class SyncViewModel @Inject constructor(
     private val _manualIp = MutableStateFlow("")
     val manualIp = _manualIp.asStateFlow()
 
-    /** The desktop shows a keyId under the code; both halves identify the pairing. */
-    private val _pairingKeyId = MutableStateFlow("")
-    val pairingKeyId = _pairingKeyId.asStateFlow()
-
-    /** The 26-glyph code carrying the 128-bit secret. Never rendered anywhere else. */
+    /**
+     * The single 33-glyph code shown on the PC. It carries the key id AND the
+     * 128-bit secret, so there is exactly one thing to type. Never rendered
+     * anywhere else, and never read back out of settings.
+     */
     private val _pairingCode = MutableStateFlow("")
     val pairingCode = _pairingCode.asStateFlow()
 
@@ -62,14 +62,10 @@ class SyncViewModel @Inject constructor(
         _manualIp.value = ip
     }
 
-    fun setPairingKeyId(keyId: String) {
-        _pairingKeyId.value = keyId.trim().take(128)
-        _pairingError.value = null
-    }
-
     fun setPairingCode(code: String) {
         // Uppercase as the user types so the field matches what the desktop
-        // shows; dashes are kept because the desktop groups the code with them.
+        // shows; dashes are kept because the desktop groups the code with them
+        // (33 glyphs + 6 separators, with headroom for stray spaces).
         _pairingCode.value = code.uppercase().take(SyncCrypto.PAIRING_CODE_LENGTH * 2)
         _pairingError.value = null
     }
@@ -82,7 +78,6 @@ class SyncViewModel @Inject constructor(
 
     fun cancelPairing() {
         _pairingFormOpen.value = false
-        _pairingKeyId.value = ""
         _pairingCode.value = ""
         _pairingError.value = null
     }
@@ -92,23 +87,21 @@ class SyncViewModel @Inject constructor(
     }
 
     /**
-     * Store the keyId + code shown in the desktop app's sidebar. This is the
+     * Store the single code shown in the desktop app's sidebar. This is the
      * ONLY thing that replaces an existing device key, and it also resets the
      * sync cursor so the next run fully reconciles (spec §2.8 ops-F5).
      */
     fun savePairing() {
-        val keyId = _pairingKeyId.value.trim()
         val code = _pairingCode.value.trim()
-        if (keyId.isEmpty() || code.isEmpty()) {
-            _pairingError.value = "Enter both the key id and the code shown on the PC."
+        if (code.isEmpty()) {
+            _pairingError.value = "Enter the pairing code shown on the PC."
             return
         }
         viewModelScope.launch {
             try {
-                syncManager.savePairing(keyId, code)
+                syncManager.savePairing(code)
                 _isPaired.value = true
                 _pairingFormOpen.value = false
-                _pairingKeyId.value = ""
                 _pairingCode.value = ""
                 _pairingError.value = null
             } catch (e: IllegalArgumentException) {

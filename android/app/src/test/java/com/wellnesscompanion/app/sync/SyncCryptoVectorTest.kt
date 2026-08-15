@@ -313,48 +313,86 @@ class SyncCryptoVectorTest {
         assertThrows(Exception::class.java) { SyncCrypto.openRecord(key, 0L, SyncCrypto.DIR_S2C, badTag) }
     }
 
-    // ── Pairing code (128-bit, base-31 big-endian, 26 glyphs) ──────────────
+    // ── Pairing code: ONE 33-glyph string carrying keyId(4) ‖ secret(16) ───
+    //
+    // The fixture's `pairing_code` section is the authority here, not a literal
+    // in this file: the desktop renders the code, the phone decodes it, and a
+    // one-glyph disagreement is a pairing that can never succeed.
 
     @Test
-    fun `the pairing alphabet is the 31 confusable-free glyphs and the code is 26 long`() {
+    fun `the pairing format constants match the fixture`() {
+        val p = section("pairing_code")
+        assertEquals(str(p, "alphabet"), SyncCrypto.PAIRING_ALPHABET)
         assertEquals(31, SyncCrypto.PAIRING_ALPHABET.length)
         assertFalse(SyncCrypto.PAIRING_ALPHABET.any { it in "01ILO" })
-        // The abolished ~40-bit 8-character code must never come back.
-        assertEquals(26, SyncCrypto.PAIRING_CODE_LENGTH)
+        assertEquals(p.get("code_length").asInt, SyncCrypto.PAIRING_CODE_LENGTH)
+        assertEquals(p.get("key_id_bytes").asInt, SyncCrypto.PAIRING_KEY_ID_BYTES)
+        // The secret floor does not move: still 16 bytes / 128 bits.
+        assertEquals(p.get("secret_bytes").asInt, SyncCrypto.PAIRING_SECRET_BYTES)
+        assertEquals(16, SyncCrypto.PAIRING_SECRET_BYTES)
+        assertEquals(20, SyncCrypto.PAIRING_CODE_BYTES)
+        assertEquals(
+            p.getAsJsonArray("grouping").map { it.asInt },
+            "A".repeat(SyncCrypto.PAIRING_CODE_LENGTH).chunked(5).map { it.length }
+        )
     }
 
     @Test
-    fun `decodePairingCode matches codes produced by the desktop encoder`() {
-        // Known answers emitted by the desktop's encodePairingSecret (sync-crypto.ts)
-        // — a genuine cross-implementation check, not a self-consistent round trip.
-        val known = listOf(
-            "00000000000000000000000000000000" to "AAAAA-AAAAA-AAAAA-AAAAA-AAAAAA",
-            "ffffffffffffffffffffffffffffffff" to "UYR35-K9VDG-DTTBG-YZ4J7-62BWRH",
-            "000102030405060708090a0b0c0d0e0f" to "AAAJD-J3F49-Z2Q3C-KTCG7-ZC3F3X",
-            "a3f19c7d2b4e60815fca9d3e7b02c418" to "NMHYJ-8HJR5-WDX3M-RFY38-CWXNF4"
-        )
-        for ((secretHex, code) in known) {
-            val decoded = SyncCrypto.decodePairingCode(code)
-            assertEquals("code $code", secretHex, hex(decoded))
-            assertEquals(SyncCrypto.PAIRING_SECRET_BYTES, decoded.size)
+    fun `every pinned pairing vector decodes and re-encodes byte-identically`() {
+        val vectors = section("pairing_code").getAsJsonArray("vectors")
+        assertEquals(3, vectors.size())
+        for (element in vectors) {
+            val v = element.asJsonObject
+            val grouped = str(v, "code_grouped")
+            val parts = SyncCrypto.decodePairingCode(grouped)
+            assertEquals("keyId for $grouped", str(v, "keyId_hex"), parts.keyId)
+            assertEquals("secret for $grouped", str(v, "secret_hex"), hex(parts.secret))
+            assertEquals(SyncCrypto.PAIRING_SECRET_BYTES, parts.secret.size)
+            // Re-encoding must reproduce the desktop's exact rendering, dashes
+            // and all — the all-zero vector fails here if the left-pad is lost.
+            assertEquals(grouped, SyncCrypto.encodePairingCode(parts.keyId, parts.secret))
+            assertEquals(grouped.replace("-", ""), str(v, "code_bare"))
         }
     }
 
     @Test
-    fun `dashes, whitespace and case are ignored on input`() {
-        val expected = "a3f19c7d2b4e60815fca9d3e7b02c418"
-        assertEquals(expected, hex(SyncCrypto.decodePairingCode("NMHYJ8HJR5WDX3MRFY38CWXNF4")))
-        assertEquals(expected, hex(SyncCrypto.decodePairingCode("nmhyj-8hjr5-wdx3m-rfy38-cwxnf4")))
-        assertEquals(expected, hex(SyncCrypto.decodePairingCode("  NMHYJ 8HJR5 WDX3M RFY38 CWXNF4  ")))
+    fun `decoding ignores dashes, case and surrounding whitespace`() {
+        val v = section("pairing_code").getAsJsonArray("vectors")[0].asJsonObject
+        val grouped = str(v, "code_grouped")
+        val bare = str(v, "code_bare")
+        for (typed in listOf(grouped, bare, bare.lowercase(), "  ${grouped.lowercase()}  ", bare.chunked(4).joinToString(" "))) {
+            val parts = SyncCrypto.decodePairingCode(typed)
+            assertEquals(str(v, "keyId_hex"), parts.keyId)
+            assertEquals(str(v, "secret_hex"), hex(parts.secret))
+        }
     }
 
     @Test
-    fun `a malformed pairing code is rejected`() {
+    fun `a malformed pairing code is rejected rather than silently truncated`() {
+        val bare = str(section("pairing_code").getAsJsonArray("vectors")[0].asJsonObject, "code_bare")
+        // Wrong length, in both directions — never truncate to the first 33.
+        assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode(bare.dropLast(1)) }
+        assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode(bare + "A") }
         assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode("TOO-SHORT") }
-        assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode("!".repeat(26)) }
-        // Valid glyphs, valid length, but a value >= 2^128.
-        assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode("9".repeat(26)) }
-        // The abolished 8-character code is not accepted.
+        // A glyph that is not on the chart.
+        assertThrows(Exception::class.java) {
+            SyncCrypto.decodePairingCode("!".repeat(SyncCrypto.PAIRING_CODE_LENGTH))
+        }
+        assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode("I" + bare.drop(1)) }
+        // Valid glyphs and length, but a value >= 2^160.
+        assertThrows(Exception::class.java) {
+            SyncCrypto.decodePairingCode("9".repeat(SyncCrypto.PAIRING_CODE_LENGTH))
+        }
+        // The abolished short codes are not accepted.
         assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode("ABCD2345") }
+        assertThrows(Exception::class.java) { SyncCrypto.decodePairingCode("A".repeat(26)) }
+    }
+
+    @Test
+    fun `encodePairingCode rejects a malformed keyId or secret`() {
+        val secret = ByteArray(SyncCrypto.PAIRING_SECRET_BYTES)
+        assertThrows(Exception::class.java) { SyncCrypto.encodePairingCode("DEADBEEF", secret) }
+        assertThrows(Exception::class.java) { SyncCrypto.encodePairingCode("deadbee", secret) }
+        assertThrows(Exception::class.java) { SyncCrypto.encodePairingCode("deadbeef", ByteArray(15)) }
     }
 }

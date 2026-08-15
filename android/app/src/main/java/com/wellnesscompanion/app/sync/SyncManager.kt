@@ -152,31 +152,28 @@ class SyncManager @Inject constructor(
     suspend fun isPaired(): Boolean = getPairing() != null
 
     /**
-     * Store a pairing typed off the desktop's "Pair a device" panel: its
-     * `keyId` and the 26-glyph code carrying the 128-bit secret.
+     * Store a pairing typed off the desktop's "Pair a device" panel: ONE
+     * 33-glyph code carrying `keyId(4) ‖ secret(16)`. The user never
+     * transcribes a lookup handle separately.
      *
      * Throws [IllegalArgumentException] with a user-safe message (never
-     * quoting the code) if either half is malformed.
+     * quoting the code) if the code is malformed — and it throws BEFORE
+     * anything is written, so a typo cannot destroy an existing pairing.
      *
      * On success the sync cursor is reset to 0 so the next run is one full
      * reconciling sync — this is the ops-F5 fix: without it, re-pairing against
      * a desktop whose database was lost or rolled back left the two sides
      * silently and permanently out of step.
      */
-    suspend fun savePairing(keyId: String, code: String) {
-        val cleanedKeyId = keyId.trim()
-        require(cleanedKeyId.isNotEmpty() && cleanedKeyId.length <= 128) {
-            "Enter the key id shown under the pairing code on the PC."
-        }
-        // Throws before anything is written if the code is not a real code.
-        val secret = SyncCrypto.decodePairingCode(code)
+    suspend fun savePairing(code: String) {
+        val parts = SyncCrypto.decodePairingCode(code)
 
         val settings = db.settingsDao()
-        settings.setSetting(SettingEntity(key = PAIRING_KEY_ID_KEY, value = cleanedKeyId))
+        settings.setSetting(SettingEntity(key = PAIRING_KEY_ID_KEY, value = parts.keyId))
         settings.setSetting(
             SettingEntity(
                 key = DEVICE_KEY_KEY,
-                value = Base64.getEncoder().encodeToString(secret)
+                value = Base64.getEncoder().encodeToString(parts.secret)
             )
         )
         settings.setSetting(SettingEntity(key = LAST_SYNC_KEY, value = "0"))
