@@ -2,6 +2,85 @@
 
 All notable changes to Wellness Companion are documented here.
 
+## [1.2.0] - 2026-08-15
+
+Three pieces of user feedback, plus the update path they exposed.
+
+### Added
+
+- **Delete people from the journal's suggestion list.** The desktop Journal page gains a *manage
+  people* panel where a saved person can be removed; the removal is a tombstone that survives sync in
+  both directions, and past journal entries are untouched (they store names, not references).
+  Cause: the delete path existed in the database layer but was dead code — the page's own UI rendered
+  people as plain strings and discarded the row ids needed to call it — and aux-table sync was
+  add-only, so any peer that still knew the row re-inserted it on the next sync. Fix: a `deleted_at`
+  column on both platforms (desktop migration, Room v2→v3), exchanged through the existing `people`
+  aux payload as a grow-only tombstone that no code path may clear. Re-adding the same name creates a
+  new row with a new uuid — intended. How to use: 💬 Journal → *manage people* → ✕ beside a name.
+  Affects: `windows/src/main/database.ts`, `windows/src/main/sync-server.ts`,
+  `windows/src/renderer/src/pages/InteractionsPage.tsx`, `android/.../data/local/entity/PersonEntity.kt`,
+  `android/.../data/local/dao/PersonDao.kt`, `android/.../data/local/WellnessDatabase.kt`,
+  `android/.../sync/SyncManager.kt`.
+- **"Earlier ideas" on the phone.** The Ideas screen now shows previous ideas below today's, grouped
+  by day, newest first. Cause: nothing was missing from the data — ideas have always synced both ways
+  — the screen simply queried today's entries only, so a phone showed an empty list for anything
+  written yesterday while the desktop showed the whole history. Fix: a history query beside the
+  today query, rendered as dated groups. Affects: `android/.../ui/ideas/IdeasScreen.kt`,
+  `android/.../ui/ideas/IdeasViewModel.kt`, `android/.../data/local/dao/EntryDao.kt`.
+- **Sleep saves in two halves, on both apps.** Save a bedtime in the evening and it persists — kill
+  the app, reopen it, the bedtime is still there instead of the default 23:00. Save the wake-up in
+  the morning and it completes the *same* row rather than creating a second one, and the night is
+  re-dated to the wake-up day, matching how one-shot morning saves have always been dated. From the
+  completed state, *"Save tonight's bedtime"* starts the next night. A single full save still works
+  exactly as before. Cause: sleep was one atomic save assembled in memory from hardcoded defaults —
+  there was no partial row to come back to, so closing the app lost the bedtime, and a second save
+  the next morning wrote a duplicate entry for the day. Fix: `wakeTime` became nullable in the sleep
+  payload, saves upsert against the latest sleep entry, and partial entries are guarded everywhere
+  they are rendered so a missing wake-up never reaches the duration maths as `NaN`.
+  Affects: `android/.../ui/sleep/SleepScreen.kt`, `android/.../ui/sleep/SleepViewModel.kt`,
+  `android/.../data/model/SleepData.kt`, `android/.../ui/dashboard/DashboardViewModel.kt`,
+  `windows/src/renderer/src/pages/SleepPage.tsx`, `windows/src/renderer/src/lib/summary.ts`.
+- **Update-safe installs.** Installing over an existing install is now an explicit, stated path
+  rather than an assumption. The Windows installer detects an existing installation, closes the
+  running app before replacing files, and says on screen that your data is kept. The desktop app
+  snapshots its database on the first launch after any version change, keeping the last five
+  snapshots under `%APPDATA%\wellness-companion\backups\` (written to a temp file and renamed, and
+  the quit sequence waits for an in-flight snapshot before closing the database, so a half-written
+  backup cannot be left behind). The phone installer states that the APK updates in place and warns
+  to sync before any uninstall. Cause: updating had always *happened* to work, but nothing verified
+  it — no backup existed if a migration went wrong, the installer never mentioned data at all, and
+  an Android uninstall silently takes the database with it. Affects: `installer/wellness_setup.iss`,
+  `installer/install_phone_app.bat`, `windows/src/main/database.ts`, `windows/src/main/index.ts`.
+
+### Changed
+
+- **The Android launcher icon renders the same art as the Windows icon** — the same gradients, leaf
+  veins and heart, ported into the adaptive icon's vector drawables. Why: the two apps shipped
+  visibly different marks. The status-bar notification icon stays flat, which Android requires.
+  Affects: `android/app/src/main/res/drawable/ic_launcher_background.xml`,
+  `android/app/src/main/res/drawable/ic_launcher_foreground.xml`.
+
+### Fixed
+
+- **Sync updates never applied.** Cause: the last-write-wins guard on the desktop's ingest UPDATE
+  compared the stored row's `modified_at` against *itself* rather than against the incoming
+  timestamp, so the condition could never be true and every update to an existing row was silently
+  discarded — the phone's counter still reported them as applied. Nothing arriving from the phone
+  could change a row the desktop already had: idea edits and sleep completions replicated as
+  inserts-that-weren't. Fix: bind the incoming `modified_at`. Affects: `windows/src/main/sync-server.ts`.
+- Sync updates now carry the entry's `date`, so a night re-dated to the wake-up day replicates as the
+  same row on the other device instead of staying on the evening it started.
+- Desktop bedtime-only saves omit the `wakeTime` key entirely instead of sending an explicit `null`.
+  Cause: a phone still running the 1.1.0 APK parses the sleep payload with Gson into a non-null
+  field; an explicit `null` would have crashed it. An absent key is the safe wire shape.
+- Editing or deleting an idea on the phone did nothing. Cause: `IdeasViewModel` read the day's
+  entries from a `stateIn(WhileSubscribed)` flow that no collector ever subscribed to, so `.value`
+  was permanently the empty initial list and both actions matched nothing. Fix: read the entries
+  on demand inside the action, following the one-shot `.first()` pattern already used by
+  `ChoresViewModel`. Affects: `android/.../ui/ideas/IdeasViewModel.kt`.
+- Navigating to a date with a bedtime-only entry no longer leaves the previous date's wake-up time
+  in the picker. Affects: `windows/src/renderer/src/pages/SleepPage.tsx`.
+
 ## [1.1.0] - 2026-08-12
 
 ### Added — sync is now authenticated

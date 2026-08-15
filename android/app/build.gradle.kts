@@ -39,8 +39,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // Kept in step with windows/package.json and the installer artifact name.
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

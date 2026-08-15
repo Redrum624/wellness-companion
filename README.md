@@ -92,14 +92,21 @@ and writes weekly summaries with a local LLM.
 manual IP fallback when multicast is blocked.
 
 **On the phone** — hydration, meal, evening check-in and refill reminders · weekly trend charts ·
-unit conversion · a small celebration when you hit a goal.
+unit conversion · a small celebration when you hit a goal · earlier ideas grouped by day, not just
+today's.
 
 **On the desktop** — offline AI insights via `node-llama-cpp` · a 52-week calendar heatmap · a
-chronological timeline of the day across every category.
+chronological timeline of the day across every category · a *manage people* panel that deletes a
+person from the journal's suggestion list, and keeps them deleted on every synced device.
 
 **Everywhere** — per-category streaks · daily goals as `X/Y` progress · one-tap quick buttons for
 routine amounts · star ratings, sliders and tag input with recall · a consistent pastel colour
-system per category.
+system per category · split sleep logging — save a bedtime in the evening, complete the same night
+with your wake-up in the morning.
+
+**Installing and updating** — a new Setup installs over the old one and keeps your data; the desktop
+app snapshots its database on the first launch after any version change and keeps the last five
+snapshots.
 
 ---
 
@@ -171,6 +178,17 @@ file contains the app, the Visual C++ runtime, and the Android package.
 
 **4. Pair them.** Open the desktop app — its sidebar shows an eight-character code. On the phone,
 tap **🔄 Sync**, enter the code, tap **Pair**, then **Sync**. Once only.
+
+### Updating
+
+Run the new `Wellness Companion Setup <version>.exe` over the old install, and install the new APK
+over the old app on the phone. **Do not uninstall first** — on Windows and Android alike, installing
+over the top keeps your entries; uninstalling the phone app deletes its database with it, so sync to
+the desktop before you ever remove it.
+
+The desktop app takes a snapshot of `wellness.db` on the first launch after the version changes and
+keeps the last five under `%APPDATA%\wellness-companion\backups\`. Nothing is deleted from your
+database by an update — the snapshot is there for the case where something later goes wrong.
 
 ---
 
