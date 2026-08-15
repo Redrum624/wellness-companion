@@ -1,8 +1,8 @@
 /**
  * Device-key / pending-pairing / pairing-backoff persistence (spec §2.8).
  *
- * database.ts pulls in electron and the native better-sqlite3 binding (built
- * for Electron's ABI, not plain Node), so both are stubbed here: these helpers
+ * database.ts pulls in electron and the native SQLite binding (built for
+ * Electron's ABI, not plain Node), so both are stubbed here: these helpers
  * are exercised against an in-memory SettingsIO, which is exactly the seam the
  * production code uses over the `settings` table. Nothing here touches the
  * user's live wellness.db.
@@ -11,11 +11,11 @@ jest.mock('electron', () => ({
   app: { getPath: (): string => '', getVersion: (): string => '0.0.0' },
   ipcMain: { handle: jest.fn(), removeHandler: jest.fn() }
 }))
-jest.mock('better-sqlite3', () => ({
+jest.mock('better-sqlite3-multiple-ciphers', () => ({
   __esModule: true,
   default: class {
     constructor() {
-      throw new Error('better-sqlite3 must not be constructed in unit tests')
+      throw new Error('the native SQLite binding must not be constructed in unit tests')
     }
   }
 }))

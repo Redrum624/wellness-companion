@@ -1,7 +1,9 @@
 # pnpm 10+ refuses to run dependency build scripts unless they are approved here.
 # These four are approved deliberately, and all four are required:
 #
-#   better-sqlite3  - compiles the native SQLite binding the app stores entries in
+#   better-sqlite3-multiple-ciphers
+#                   - compiles the native SQLite binding (SQLCipher-capable fork)
+#                     the app stores entries in, encrypted at rest
 #   node-llama-cpp  - fetches/builds the llama.cpp binaries that run the local model
 #   electron        - downloads the Electron binary
 #   esbuild         - downloads its platform binary
@@ -10,7 +12,7 @@
 # false"), which is not a boolean — so the build scripts were skipped and a fresh
 # install produced an app with no native bindings.
 allowBuilds:
-  better-sqlite3: true
+  better-sqlite3-multiple-ciphers: true
   electron: true
   esbuild: true
   node-llama-cpp: true

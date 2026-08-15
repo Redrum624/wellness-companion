@@ -8,7 +8,8 @@ export default defineConfig({
     build: {
       outDir: 'out/main',
       rollupOptions: {
-        external: ['better-sqlite3', 'node-llama-cpp', 'ws', 'bonjour-service']
+        // at-rest: the SQLite binding is now the SQLCipher-capable fork.
+        external: ['better-sqlite3-multiple-ciphers', 'node-llama-cpp', 'ws', 'bonjour-service']
       }
     }
   },

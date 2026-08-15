@@ -1,23 +1,151 @@
-import Database from 'better-sqlite3'
-import { app, ipcMain } from 'electron'
-import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from 'fs'
+// at-rest: SQLCipher-capable drop-in for better-sqlite3 (spec §4).
+import Database from 'better-sqlite3-multiple-ciphers'
+import { app, dialog, ipcMain, safeStorage } from 'electron'
+// at-rest: copyFileSync/readFileSync/writeFileSync/openSync serve the key file,
+// the magic-header check and the checkpoint+copy backup (§4.1-§4.4).
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'fs'
+import { randomBytes } from 'crypto'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
 let db: Database.Database
 
 export function initDatabase(): void {
-  const dbPath = join(app.getPath('userData'), 'wellness.db')
+  const userDataDir = app.getPath('userData')
+  const dbPath = join(userDataDir, 'wellness.db')
   const hadExistingDb = existsSync(dbPath)
-  db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
-  createTables()
-  // Guard: this runs BEFORE backupOnVersionChange(), so today's additive-only
-  // migrations are safe, but a future DESTRUCTIVE migration must snapshot the
-  // db before migrating, not rely on the post-migration backup below to
-  // protect it (see backupOnVersionChange's doc comment).
-  migrateTables()
-  backupOnVersionChange(hadExistingDb)
+
+  // at-rest: the DB key must be resolved before the file is touched (§4.1).
+  const keyOutcome = loadOrCreateDbKey(userDataDir, safeStorage as unknown as SafeStorageLike)
+  if (keyOutcome.status === 'error') {
+    failClosedOnKeyError(keyOutcome.reason, userDataDir)
+    return
+  }
+  let key: Buffer | null = keyOutcome.status === 'ready' ? keyOutcome.key : null
+  if (keyOutcome.status === 'unavailable') {
+    setEncryptionState('unencrypted', keyOutcome.reason)
+    console.warn(`Database encryption unavailable this session: ${keyOutcome.reason}`)
+  }
+
+  // at-rest: the header decides how to open — a flag in settings would be
+  // inside the very file it describes, and desyncs after a manual restore.
+  const plaintextOnDisk = hadExistingDb && isPlaintextSqliteFile(dbPath)
+  const encryptedOnDisk = hadExistingDb && !plaintextOnDisk && fileSize(dbPath) > 0
+  if (encryptedOnDisk && (key === null || keyOutcome.created)) {
+    // An encrypted database with no key — or with a freshly minted one, which
+    // means wellness.key was lost — cannot be opened. Stop while the user's
+    // file is still exactly as they left it, rather than let SQLite create an
+    // empty database over it.
+    failClosedOnKeyError(
+      'wellness.db is already encrypted but no matching wellness.key could be unwrapped',
+      userDataDir
+    )
+    return
+  }
+
+  try {
+    db = openDatabaseHandle(dbPath, plaintextOnDisk ? null : key)
+    createTables()
+    // Guard: this runs BEFORE backupOnVersionChange(), so today's additive-only
+    // migrations are safe, but a future DESTRUCTIVE migration must snapshot the
+    // db before migrating, not rely on the post-migration backup below to
+    // protect it (see backupOnVersionChange's doc comment).
+    migrateTables()
+  } catch (err) {
+    // at-rest: a key that unwraps but does not match the file (a restored db,
+    // a swapped wellness.key) makes SQLite refuse every statement. That is an
+    // explainable key error, not a crash — and the file is still intact,
+    // because a database it cannot decrypt is one it cannot write to either.
+    if (encryptedOnDisk) {
+      try {
+        if (db?.open) db.close()
+      } catch (closeErr) {
+        console.error('Closing the unreadable database failed:', closeErr)
+      }
+      failClosedOnKeyError(
+        `wellness.db could not be opened with the stored key: ${describe(err)}`,
+        userDataDir
+      )
+      return
+    }
+    throw err
+  }
+
+  // at-rest: plaintext -> encrypted, on its own copy, before the backup runs
+  // (§4.4). The migration snapshots the file itself; it deliberately does not
+  // lean on backupOnVersionChange(), which only runs after mutation.
+  if (key && plaintextOnDisk) {
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    db.close()
+    const result = migrateToEncryptedIfNeeded(dbPath, key)
+    if (result.status === 'migrated') {
+      db = openDatabaseHandle(dbPath, key)
+      setEncryptionState('encrypted', `migrated ${result.rows ?? 0} entries to an encrypted database`)
+      console.log(`Database migrated to encrypted storage (${result.rows ?? 0} entries).`)
+    } else {
+      // Never brick: the original is untouched, so run on it unencrypted and
+      // try again next launch.
+      key = null
+      db = openDatabaseHandle(dbPath, null)
+      setEncryptionState('unencrypted', result.reason ?? 'encryption migration did not run')
+      console.error(`Database encryption migration failed, running unencrypted: ${result.reason}`)
+    }
+  } else if (key) {
+    setEncryptionState('encrypted', hadExistingDb ? 'opened encrypted' : 'created encrypted')
+  }
+
+  backupOnVersionChange(hadExistingDb, dbPath)
+}
+
+/** at-rest: open sequence per spec §4.2 (cipher, legacy, key, then WAL). */
+function openDatabaseHandle(dbPath: string, key: Buffer | null): Database.Database {
+  const handle = new Database(dbPath)
+  if (key) {
+    handle.pragma("cipher='sqlcipher'")
+    handle.pragma('legacy=4') // SQLCipher-4 page format
+    handle.key(key) // exactly 32 raw bytes -> no PBKDF2, the key is already uniform
+  }
+  handle.pragma('journal_mode = WAL')
+  return handle
+}
+
+/**
+ * at-rest: the one path that must never "repair" anything (§4.1). A key that
+ * cannot be unwrapped means the encrypted database cannot be opened; the only
+ * safe action is to say so and stop, because every alternative (open blind,
+ * create a fresh db, re-mint a key) writes over data that is still perfectly
+ * recoverable once the key or the Windows profile is restored.
+ */
+function failClosedOnKeyError(reason: string, userDataDir: string): void {
+  setEncryptionState('error', reason)
+  console.error(`Database key error, refusing to open wellness.db: ${reason}`)
+  try {
+    dialog.showErrorBox(
+      'Wellness Companion — database key error',
+      `${reason}\n\n` +
+        'Your data has NOT been changed. The encrypted database and its key live in:\n' +
+        `${userDataDir}\n\n` +
+        'wellness.key can only be unwrapped by the same Windows user account that created it. ' +
+        'Restore that account (or a matching wellness.key backup) and start the app again, or ' +
+        'restore a copy from the backups folder.'
+    )
+  } catch (err) {
+    console.error('Could not show the key-error dialog:', err)
+  }
+  app.exit(1)
 }
 
 /**
@@ -83,6 +211,276 @@ function createTables(): void {
   `)
 }
 
+// at-rest: ── encryption at rest (spec §4) ─────────────────────────────────
+// The database key lives in wellness.key, NOT in the `settings` table: that
+// table (device keys, pairing state, the version marker) is inside the very
+// file the key protects, so storing it there would be circular.
+
+const DB_KEY_FILE = 'wellness.key'
+const DB_KEY_BYTES = 32
+/** Every plaintext SQLite file starts with this; an encrypted one never does. */
+const SQLITE_PLAINTEXT_MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+
+/** The slice of Electron's safeStorage this module needs, so tests can supply it. */
+export interface SafeStorageLike {
+  isEncryptionAvailable(): boolean
+  encryptString(plainText: string): Buffer
+  decryptString(encrypted: Buffer): string
+}
+
+export type DbKeyOutcome =
+  | { status: 'ready'; key: Buffer; created: boolean }
+  /** No key material could be created; run unencrypted and retry next launch. */
+  | { status: 'unavailable'; reason: string; created?: false }
+  /** Key material exists but cannot be used: stop before touching the db. */
+  | { status: 'error'; reason: string; created?: false }
+
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * Load the wrapped 256-bit database key, minting one on first run (§4.1).
+ *
+ * Fail-closed rules, in order of how much damage the alternative would do:
+ *  - safeStorage unavailable with no key yet -> write NOTHING (an unwrapped key
+ *    on disk is worse than no encryption, because it looks encrypted) and run
+ *    unencrypted this session.
+ *  - a key file that cannot be unwrapped -> error, never a silent plaintext
+ *    fallback and never a re-mint over the existing key.
+ */
+export function loadOrCreateDbKey(userDataDir: string, ss: SafeStorageLike): DbKeyOutcome {
+  const keyPath = join(userDataDir, DB_KEY_FILE)
+  const tmpPath = `${keyPath}.tmp`
+
+  if (existsSync(keyPath)) {
+    if (!ss.isEncryptionAvailable()) {
+      return {
+        status: 'error',
+        reason: 'wellness.key exists but Windows credential storage (DPAPI) is unavailable'
+      }
+    }
+    try {
+      const key = Buffer.from(ss.decryptString(readFileSync(keyPath)), 'base64')
+      if (key.length !== DB_KEY_BYTES) {
+        return {
+          status: 'error',
+          reason: `wellness.key unwrapped to ${key.length} bytes, expected ${DB_KEY_BYTES}`
+        }
+      }
+      return { status: 'ready', key, created: false }
+    } catch (err) {
+      return { status: 'error', reason: `wellness.key could not be unwrapped: ${describe(err)}` }
+    }
+  }
+
+  if (!ss.isEncryptionAvailable()) {
+    return {
+      status: 'unavailable',
+      reason: 'Windows credential storage (DPAPI) is unavailable, so no database key was created'
+    }
+  }
+
+  try {
+    const key = randomBytes(DB_KEY_BYTES) // never derived, never hardcoded
+    // tmp-then-rename: a half-written key file would be indistinguishable from
+    // a corrupt one on the next launch.
+    writeFileSync(tmpPath, ss.encryptString(key.toString('base64')))
+    renameSync(tmpPath, keyPath)
+    return { status: 'ready', key, created: true }
+  } catch (err) {
+    try {
+      if (existsSync(tmpPath)) unlinkSync(tmpPath)
+    } catch (cleanupErr) {
+      console.error('Could not clean up a partial wellness.key.tmp:', cleanupErr)
+    }
+    // Nothing was encrypted yet, so continuing in plaintext is safe and retries.
+    return { status: 'unavailable', reason: `database key could not be stored: ${describe(err)}` }
+  }
+}
+
+/** Size of a file, or 0 when it cannot be stat'ed (missing, locked, gone). */
+function fileSize(path: string): number {
+  try {
+    return statSync(path).size
+  } catch {
+    return 0
+  }
+}
+
+/** Magic-header check (§4.4): cheap, and it cannot desync from the file. */
+export function isPlaintextSqliteFile(path: string): boolean {
+  let fd: number | null = null
+  try {
+    fd = openSync(path, 'r')
+    const head = Buffer.alloc(SQLITE_PLAINTEXT_MAGIC.length)
+    const read = readSync(fd, head, 0, head.length, 0)
+    return read === head.length && head.equals(SQLITE_PLAINTEXT_MAGIC)
+  } catch {
+    return false
+  } finally {
+    if (fd !== null) {
+      try {
+        closeSync(fd)
+      } catch {
+        /* the fd is being dropped anyway */
+      }
+    }
+  }
+}
+
+/** The handful of database methods the migration needs, so tests can fake it. */
+export interface CipherDbHandle {
+  pragma(source: string): unknown
+  key(key: Buffer): number
+  rekey(key: Buffer): number
+  prepare(source: string): { get(...params: unknown[]): unknown }
+  close(): void
+}
+export type CipherDbOpener = (path: string) => CipherDbHandle
+
+const openCipherDb: CipherDbOpener = (path: string) =>
+  new Database(path) as unknown as CipherDbHandle
+
+export interface MigrationResult {
+  status: 'not_needed' | 'migrated' | 'failed'
+  rows?: number
+  reason?: string
+}
+
+function removeIfPresent(path: string): void {
+  try {
+    if (existsSync(path)) unlinkSync(path)
+  } catch (err) {
+    console.error(`Could not remove ${path}:`, err)
+  }
+}
+
+/**
+ * Plaintext -> encrypted migration that never mutates the live file (§4.4).
+ *
+ * The whole conversion happens on `wellness.db.premigration.tmp`; the live file
+ * is only renamed aside once a SEPARATE handle has reopened the copy under the
+ * real key and actually read from `entries`. Any failure — including a stale
+ * tmp from a killed run — deletes the working copy and leaves wellness.db
+ * exactly as it was, so the app runs unencrypted this session and retries on
+ * the next launch. One `wellness.db.plaintext.bak` cycle is kept.
+ *
+ * This library has no sqlcipher_export(), so encryption goes through
+ * PRAGMA rekey — which requires a non-WAL journal first.
+ */
+export function migrateToEncryptedIfNeeded(
+  dbPath: string,
+  key: Buffer,
+  open: CipherDbOpener = openCipherDb
+): MigrationResult {
+  if (!isPlaintextSqliteFile(dbPath)) return { status: 'not_needed' }
+
+  const walPath = `${dbPath}-wal`
+  try {
+    if (existsSync(walPath) && statSync(walPath).size > 0) {
+      // Copying the main file alone would silently drop whatever the WAL still
+      // holds. The caller checkpoints and closes first; if that did not happen,
+      // refuse rather than migrate a truncated snapshot.
+      return {
+        status: 'failed',
+        reason: 'an uncheckpointed WAL is present next to wellness.db'
+      }
+    }
+  } catch (err) {
+    return { status: 'failed', reason: `could not inspect the WAL: ${describe(err)}` }
+  }
+
+  const tmpPath = `${dbPath}.premigration.tmp`
+  const bakPath = `${dbPath}.plaintext.bak`
+  const cleanupTmp = (): void => {
+    removeIfPresent(tmpPath)
+    removeIfPresent(`${tmpPath}-wal`)
+    removeIfPresent(`${tmpPath}-shm`)
+  }
+
+  cleanupTmp() // a killed earlier attempt must not be mistaken for progress
+
+  try {
+    copyFileSync(dbPath, tmpPath)
+
+    const work = open(tmpPath)
+    try {
+      work.pragma('journal_mode = DELETE') // rekey-from-plaintext needs non-WAL
+      work.pragma("cipher='sqlcipher'")
+      work.pragma('legacy=4')
+      work.rekey(key) // encrypts the copy in place
+      work.pragma('journal_mode = WAL')
+    } finally {
+      try {
+        work.close()
+      } catch (err) {
+        console.error('Closing the migration working copy failed:', err)
+      }
+    }
+
+    // Verification is a real keyed read on a fresh handle: anything less would
+    // swap in a file we have never actually decrypted.
+    const verify = open(tmpPath)
+    let rows: number
+    try {
+      verify.pragma("cipher='sqlcipher'")
+      verify.pragma('legacy=4')
+      verify.key(key)
+      const row = verify.prepare('SELECT count(*) FROM entries').get() as Record<string, unknown>
+      rows = Number(Object.values(row ?? {})[0])
+      if (!Number.isFinite(rows)) throw new Error('verification read returned no row count')
+      verify.pragma('wal_checkpoint(TRUNCATE)')
+    } finally {
+      try {
+        verify.close()
+      } catch (err) {
+        console.error('Closing the migration verification handle failed:', err)
+      }
+    }
+
+    removeIfPresent(bakPath) // keep exactly one plaintext cycle
+    renameSync(dbPath, bakPath)
+    try {
+      renameSync(tmpPath, dbPath)
+    } catch (err) {
+      // Put the original back rather than leave the app with no database.
+      try {
+        renameSync(bakPath, dbPath)
+      } catch (restoreErr) {
+        console.error('Restoring wellness.db after a failed swap failed:', restoreErr)
+      }
+      throw err
+    }
+
+    // A plaintext -wal/-shm left beside the now-encrypted file would be
+    // replayed into it on the next open.
+    removeIfPresent(`${dbPath}-wal`)
+    removeIfPresent(`${dbPath}-shm`)
+
+    return { status: 'migrated', rows }
+  } catch (err) {
+    cleanupTmp()
+    return { status: 'failed', reason: describe(err) }
+  }
+}
+
+export type EncryptionMode = 'encrypted' | 'unencrypted' | 'error'
+let encryptionState: { mode: EncryptionMode; reason: string } = {
+  mode: 'unencrypted',
+  reason: 'database not initialised'
+}
+
+function setEncryptionState(mode: EncryptionMode, reason: string): void {
+  encryptionState = { mode, reason }
+}
+
+/** Whether this session is running on an encrypted database, and why not. */
+export function getEncryptionStatus(): { mode: EncryptionMode; reason: string } {
+  return { ...encryptionState }
+}
+// at-rest: ── end encryption at rest ────────────────────────────────────────
+
 /** Idempotent column adds for databases created before the column existed. */
 function migrateTables(): void {
   const peopleCols = db.prepare('PRAGMA table_info(people)').all().map((c: any) => c.name)
@@ -94,8 +492,28 @@ function migrateTables(): void {
 const LAST_VERSION_KEY = 'app.last_run_version'
 const MAX_DB_BACKUPS = 5
 
-/** Tracks the in-flight pre-update backup, if any, so quit can wait on it. */
-let pendingBackup: Promise<void> | null = null
+/**
+ * at-rest: the pre-update snapshot, as a WAL checkpoint plus a raw file copy
+ * (§4.3). db.backup() cannot be used on an encrypted database — it does not
+ * produce a correctly-encrypted copy — whereas every page on disk, WAL
+ * included, is already ciphertext, so copying the file is both correct and
+ * cheaper. Preferred over VACUUM INTO, which would put the raw key into a SQL
+ * string. Trade-off: this is not an *online* backup; it is safe here only
+ * because the app holds a single connection and this runs at startup before
+ * any writes.
+ */
+export function snapshotDatabaseFile(
+  handle: { pragma(source: string): unknown },
+  dbPath: string,
+  tmpPath: string,
+  destPath: string
+): void {
+  handle.pragma('wal_checkpoint(TRUNCATE)') // fold the WAL into wellness.db
+  copyFileSync(dbPath, tmpPath)
+  // Only becomes the real backup file once fully written, so a reader
+  // (pruning, the user, a future restore flow) never sees a partial one.
+  renameSync(tmpPath, destPath)
+}
 
 /**
  * Update safety net: the first launch after an app update snapshots the
@@ -105,9 +523,12 @@ let pendingBackup: Promise<void> | null = null
  * against the migration itself — a destructive migration would already have
  * mutated the live db by the time this snapshot is taken. Harmless today
  * because all migrations are additive (see the guard note on the
- * migrateTables() call in initDatabase). Uses SQLite's online backup API
- * (safe under WAL). The version marker is only advanced after a successful
- * backup, so a failed backup retries on the next launch.
+ * migrateTables() call in initDatabase). The version marker is only advanced
+ * after a successful backup, so a failed backup retries on the next launch.
+ *
+ * at-rest: the copy is of the encrypted file, so the backup is ciphertext too
+ * — and, like the live database, only openable by the Windows account whose
+ * DPAPI wrapped wellness.key.
  *
  * Everything past the fresh-install early return is wrapped in try/catch:
  * this runs inside initDatabase(), which runs inside the un-caught
@@ -115,7 +536,7 @@ let pendingBackup: Promise<void> | null = null
  * (e.g. mkdirSync failing on a full disk or locked-down ACL) must never be
  * allowed to propagate and silently prevent the window from ever opening.
  */
-function backupOnVersionChange(hadExistingDb: boolean): void {
+function backupOnVersionChange(hadExistingDb: boolean, dbPath: string): void {
   const current = app.getVersion()
   const row: any = db.prepare('SELECT value FROM settings WHERE key = ?').get(LAST_VERSION_KEY)
   const previous: string | null = row?.value ?? null
@@ -146,30 +567,23 @@ function backupOnVersionChange(hadExistingDb: boolean): void {
 
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const dest = join(backupDir, `wellness-v${previous ?? 'pre-1.2.0'}-${ts}.db`)
-    const tmp = `${dest}.tmp`
-    pendingBackup = db
-      .backup(tmp)
-      .then(() => {
-        // Only becomes the real backup file once fully written, so a reader
-        // (pruning, the user, a future restore flow) never sees a partial one.
-        renameSync(tmp, dest)
-        stamp()
-        pruneBackups(backupDir)
-        console.log(`Database backed up before first run of v${current}: ${dest}`)
-      })
-      .catch((err) => console.error('Pre-update database backup failed:', err))
-      .finally(() => {
-        pendingBackup = null
-      })
+    // at-rest: checkpoint + copy replaces the async db.backup() (§4.3).
+    snapshotDatabaseFile(db, dbPath, `${dest}.tmp`, dest)
+    stamp()
+    pruneBackups(backupDir)
+    console.log(`Database backed up before first run of v${current}: ${dest}`)
   } catch (err) {
-    console.error('Pre-update backup setup failed:', err)
+    console.error('Pre-update database backup failed:', err)
   }
 }
 
-/** Give an in-flight pre-update backup a moment to finish before the DB closes. */
-export async function waitForPendingBackup(timeoutMs = 3000): Promise<void> {
-  if (!pendingBackup) return
-  await Promise.race([pendingBackup, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))])
+/**
+ * Kept as an awaited no-op for API stability: the pre-update snapshot is now a
+ * synchronous checkpoint+copy (at-rest, §4.3), so nothing is ever in flight by
+ * the time quit runs. index.ts still awaits this before closeDatabase().
+ */
+export async function waitForPendingBackup(_timeoutMs = 3000): Promise<void> {
+  return
 }
 
 function pruneBackups(backupDir: string): void {

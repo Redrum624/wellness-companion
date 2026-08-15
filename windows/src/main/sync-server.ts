@@ -1,7 +1,8 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { Bonjour } from 'bonjour-service'
 import { ipcMain, BrowserWindow } from 'electron'
-import type Database from 'better-sqlite3'
+// at-rest: type-only import follows the encrypted-DB binding swap (spec §4.2).
+import type Database from 'better-sqlite3-multiple-ciphers'
 import { networkInterfaces } from 'os'
 import { randomBytes, randomUUID } from 'crypto'
 // transport: wc-sync/4 replaces the plaintext v3 protocol wholesale.
