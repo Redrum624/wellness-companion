@@ -59,5 +59,20 @@ class VectorsSmokeTest {
 
         val offcurveSpki = vectors.get("offcurve_spki").asString
         assertTrue(offcurveSpki.isNotEmpty())
+
+        // th_wire_bytes: shape-only here -- Task 2 owns the full JCA recompute
+        // of the uint32BE-length-prefix rule (mirrors the Jest test's second
+        // independent implementation of the same rule).
+        val thWireBytes = vectors.getAsJsonObject("th_wire_bytes")
+        val expectedTh = thWireBytes.get("expected_th").asString
+        assertTrue(
+            "expected_th must be 64 lowercase hex chars, got '$expectedTh'",
+            expectedTh.matches(Regex("^[0-9a-f]{64}$"))
+        )
+        val elementsHex = thWireBytes.getAsJsonArray("elements_hex")
+        assertTrue("th_wire_bytes.elements_hex must have exactly 3 elements (hello, hs1, pub_s_b64)", elementsHex.size() == 3)
+        assertTrue(thWireBytes.get("hello_json").asString.isNotEmpty())
+        assertTrue(thWireBytes.get("hs1_json").asString.isNotEmpty())
+        assertTrue(thWireBytes.get("pub_s_b64").asString.isNotEmpty())
     }
 }

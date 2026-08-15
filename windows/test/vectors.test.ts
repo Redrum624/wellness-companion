@@ -1,4 +1,4 @@
-import { createHmac, hkdfSync } from 'node:crypto'
+import { createHash, createHmac, hkdfSync } from 'node:crypto'
 import vectors from '../../shared/crypto-vectors.json'
 
 function hex(buf: ArrayBuffer | Buffer): string {
@@ -12,6 +12,8 @@ test('fixture has all sections', () => {
   expect(vectors.ecdh_leading_zero_x.expected_ss).toMatch(/^00[0-9a-f]{62}$/)
   expect(typeof vectors.offcurve_spki).toBe('string')
   expect(vectors.offcurve_spki.length).toBeGreaterThan(0)
+  expect(vectors.th_wire_bytes.expected_th).toMatch(/^[0-9a-f]{64}$/)
+  expect(vectors.th_wire_bytes.elements_hex.length).toBe(3)
 })
 
 describe('RFC 5869 HKDF-SHA256 vectors (Node crypto.hkdfSync)', () => {
@@ -70,5 +72,45 @@ describe('handshake derivation contract (Node crypto)', () => {
     expect(hex(mac_s)).toBe(h.mac_s)
     expect(hex(mac_c)).toBe(h.mac_c)
     expect(h.mac_s).not.toBe(h.mac_c)
+  })
+})
+
+describe('th (transcript hash) wire-byte construction (spec §2.3)', () => {
+  // th = SHA256(len-prefixed wire bytes: hello || hs1 || pub_s_b64), each
+  // element prefixed with its length as a uint32 BIG-ENDIAN integer, hashed
+  // in the order hello, hs1, pub_s_b64. This is a SECOND, independent
+  // implementation of the same length-prefix rule the Python generator used
+  // (Buffer.writeUInt32BE + Buffer.concat + node:crypto's Hash, not the
+  // generator's Python int.to_bytes/hashlib) -- an agreement here means the
+  // rule itself, not just one implementation of it, is unambiguous.
+  const t = vectors.th_wire_bytes
+
+  function lengthPrefixed(elem: Buffer): Buffer {
+    const lenPrefix = Buffer.alloc(4)
+    lenPrefix.writeUInt32BE(elem.length, 0)
+    return Buffer.concat([lenPrefix, elem])
+  }
+
+  test('recompute expected_th from elements_hex using the uint32BE-prefix rule', () => {
+    const elements = t.elements_hex.map((h) => Buffer.from(h, 'hex'))
+    const transcript = Buffer.concat(elements.map(lengthPrefixed))
+    const th = createHash('sha256').update(transcript).digest()
+    expect(hex(th)).toBe(t.expected_th)
+  })
+
+  test('elements_hex matches independently re-encoding hello_json/hs1_json/pub_s_b64', () => {
+    // pub_s_b64 contributes its ASCII/base64 TEXT bytes (not decoded DER) --
+    // the #1 way Node/Android implementations could silently diverge.
+    const helloBytes = Buffer.from(t.hello_json, 'utf8')
+    const hs1Bytes = Buffer.from(t.hs1_json, 'utf8')
+    const pubSBytes = Buffer.from(t.pub_s_b64, 'ascii')
+
+    expect(hex(helloBytes)).toBe(t.elements_hex[0])
+    expect(hex(hs1Bytes)).toBe(t.elements_hex[1])
+    expect(hex(pubSBytes)).toBe(t.elements_hex[2])
+
+    const transcript = Buffer.concat([helloBytes, hs1Bytes, pubSBytes].map(lengthPrefixed))
+    const th = createHash('sha256').update(transcript).digest()
+    expect(hex(th)).toBe(t.expected_th)
   })
 })

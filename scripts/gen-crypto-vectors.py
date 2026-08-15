@@ -263,6 +263,97 @@ assert offcurve is not None, "could not construct an off-curve SPKI blob that th
 offcurve_spki_b64 = base64.b64encode(offcurve).decode()
 print("[ok] offcurve_spki constructed and confirmed rejected by cryptography's loader")
 
+# NOTE on reproducibility: sections 4 and 5 above (and the two throwaway
+# keypairs used in section 6 below) come from an UNSEEDED random search /
+# unseeded key generation. Re-running this script produces different, but
+# equally valid, key material and byte content for those fields every time
+# -- the committed shared/crypto-vectors.json is the pinned snapshot; a
+# future "regenerate and diff" against it is EXPECTED to show a full diff
+# on these fields and is not, by itself, evidence of a regression. Only the
+# hkdf_rfc5869 / handshake / gcm_record sections (all derived from fixed
+# literals) are byte-for-byte reproducible across runs.
+
+
+# ---------------------------------------------------------------------------
+# Section 6: th (transcript hash) wire-byte construction
+# th = SHA256(len-prefixed wire bytes: hello || hs1 || pub_s_b64), each
+# element prefixed with its length as a uint32 BIG-ENDIAN integer.
+# Pinned choice: pub_s_b64 contributes its ASCII/base64 TEXT bytes (the
+# literal characters the server put in the JSON), NOT the decoded SPKI DER
+# bytes -- this is spec §2.3's explicit call-out and the #1 way Node/Android
+# could silently diverge (one side hashing base64 text, the other hashing
+# decoded DER).
+# ---------------------------------------------------------------------------
+def uint32be_len_prefixed_concat(elements: list) -> bytes:
+    parts = []
+    for e in elements:
+        parts.append(len(e).to_bytes(4, "big"))
+        parts.append(e)
+    return b"".join(parts)
+
+
+def deterministic_p256_private_key(label: bytes):
+    """Deterministic P-256 private key derived from `label`, without
+    hardcoding the curve order: try successive SHA-256(label||counter)
+    scalars until one falls in cryptography's accepted [1, n-1] range."""
+    counter = 0
+    while True:
+        d = int.from_bytes(hashlib.sha256(label + counter.to_bytes(4, "big")).digest(), "big")
+        try:
+            return ec.derive_private_key(d, ec.SECP256R1())
+        except ValueError:
+            counter += 1
+
+
+nonce_s = hashlib.sha256(b"th-fixture-nonce_s").digest()
+nonce_c = hashlib.sha256(b"th-fixture-nonce_c").digest()
+pub_c_key = deterministic_p256_private_key(b"th-fixture-pub_c").public_key()
+pub_s_key = deterministic_p256_private_key(b"th-fixture-pub_s").public_key()
+
+
+def spki_b64(pub_key) -> str:
+    return base64.b64encode(
+        pub_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    ).decode()
+
+
+hello_obj = {
+    "type": "hello",
+    "version": 4,
+    "minVersion": 4,
+    "crypto": ["x1"],
+    "nonce_s": base64.b64encode(nonce_s).decode(),
+}
+hello_json = json.dumps(hello_obj, separators=(",", ":"))
+
+hs1_obj = {
+    "type": "hs1",
+    "proto": "x1",
+    "keyId": "11111111-1111-4111-8111-111111111111",
+    "deviceId": "22222222-2222-4222-8222-222222222222",
+    "pub_c": spki_b64(pub_c_key),
+    "nonce_c": base64.b64encode(nonce_c).decode(),
+}
+hs1_json = json.dumps(hs1_obj, separators=(",", ":"))
+
+pub_s_b64 = spki_b64(pub_s_key)
+
+# Order matters: hello, then hs1, then pub_s_b64 (spec §2.3).
+th_elements = [hello_json.encode("utf-8"), hs1_json.encode("utf-8"), pub_s_b64.encode("ascii")]
+expected_th = hashlib.sha256(uint32be_len_prefixed_concat(th_elements)).digest()
+
+th_wire_bytes = {
+    "hello_json": hello_json,
+    "hs1_json": hs1_json,
+    "pub_s_b64": pub_s_b64,
+    "elements_hex": [e.hex() for e in th_elements],
+    "expected_th": expected_th.hex(),
+}
+print("[ok] th_wire_bytes constructed: uint32BE-length-prefixed(hello, hs1, pub_s_b64-as-text)")
+
 
 # ---------------------------------------------------------------------------
 # Assemble and write
@@ -273,6 +364,7 @@ out = {
     "gcm_record": gcm_record,
     "ecdh_leading_zero_x": ecdh_leading_zero_x,
     "offcurve_spki": offcurve_spki_b64,
+    "th_wire_bytes": th_wire_bytes,
 }
 
 os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
