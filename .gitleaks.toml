@@ -38,7 +38,6 @@ precisely because it must never be regenerated — if it changed, the desktop an
 Android suites would stop testing the same vector.
 """
 condition = "AND"
-paths = ['''(^|/)shared/crypto-vectors\.json$''']
 regexTarget = "match"
 regexes = ['''4f1c9a37e0b5d284c6317fa8905e2db3''']
 
@@ -49,7 +48,6 @@ vector. A derived test key that exists only to check both platforms produce the 
 ct_tag for a fixed nonce/aad/plaintext triple.
 """
 condition = "AND"
-paths = ['''(^|/)shared/crypto-vectors\.json$''']
 regexTarget = "match"
 regexes = ['''9f3e337f8a863c67093205ec596fde6ba547e559e95e4a2cc707cfa05529fd8c''']
 
@@ -59,6 +57,5 @@ crypto-vectors.json: the AES-256-GCM record key for the gcm_record_s2c
 (server->client) vector. Same role as the one above, for the reverse direction.
 """
 condition = "AND"
-paths = ['''(^|/)shared/crypto-vectors\.json$''']
 regexTarget = "match"
 regexes = ['''dfba2a1d1c1cd4cddeb360fdebfd63e10bf93a081624abe08ff18a53b4b989f9''']
