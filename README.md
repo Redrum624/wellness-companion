@@ -304,7 +304,12 @@ snapshots.
 <summary><strong>Prerequisites</strong> (click to expand)</summary>
 
 - **Android SDK + JDK 17** — required. The installer bundles the phone app, and `android/app/build/`
-  is gitignored, so a clean clone always builds the APK from source.
+  is gitignored, so a clean clone always builds the APK from source. Gradle has to be told where the
+  SDK lives: either set `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) to it — e.g.
+  `C:\Users\<you>\AppData\Local\Android\Sdk` — or create `android/local.properties` containing
+  `sdk.dir=C:\\Users\\<you>\\AppData\\Local\\Android\\Sdk` (escape the backslashes; it is a Java
+  properties file). That file is deliberately gitignored because the path is machine-specific, so a
+  fresh clone never has one. Without either, the Android build stops at `SDK location not found`.
 - **Node.js 18+ and [pnpm](https://pnpm.io/installation)** — use pnpm, not npm. The repo ships
   `pnpm-lock.yaml`, and `npm install` both ignores it and fails on Python 3.12+ (npm's bundled
   node-gyp 9 imports `distutils`, removed from the standard library in 3.12). pnpm installs a
