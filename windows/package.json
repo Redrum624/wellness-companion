@@ -54,6 +54,12 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "out/**/*",
+      "resources/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
     "win": {
       "target": [
         "dir"

@@ -5,20 +5,25 @@ const fs = require('fs')
 const path = require('path')
 const Database = require(path.join(__dirname, '..', '..', '..', 'windows', 'node_modules', 'better-sqlite3-multiple-ciphers'))
 
-const keyPath = process.argv[2]
-const dbPath = process.argv[3]
-const sql = process.argv[4] || null
-
 // Read-only by default: this tool's README says to point it at a COPY of the
 // live DB, but nothing enforced that -- an accidental `%APPDATA%` path plus a
 // destructive SQL argument could otherwise mutate a real user's database.
-// Pass --allow-write anywhere on the command line to open read/write.
+// --allow-write is documented (README) as an extra, trailing argument, but is
+// filtered out of argv here -- not read positionally -- so it works wherever
+// it appears on the command line without shifting the positional key/db/sql/
+// shadow-dir arguments that follow it.
 const allowWrite = process.argv.includes('--allow-write')
+const positional = process.argv.slice(2).filter((a) => a !== '--allow-write')
+
+const keyPath = positional[0]
+const dbPath = positional[1]
+const sql = positional[2] || null
+
 if (!allowWrite) console.log('opening read-only (pass --allow-write to allow mutating statements)')
 
 // Chromium's OSCrypt on Windows keeps its DPAPI-wrapped key in <userData>/Local State,
 // so the helper must run against a userData dir carrying the SAME Local State as the app.
-const shadow = process.argv[5]
+const shadow = positional[3]
 if (shadow) app.setPath('userData', shadow)
 app.disableHardwareAcceleration()
 app.whenReady().then(() => {

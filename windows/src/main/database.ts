@@ -1096,22 +1096,44 @@ export function registerDatabaseHandlers(): void {
   })
 
   // Settings
-  // `sync.*` keys (DEVICE_KEYS_SETTING, PENDING_PAIRINGS_SETTING, PAIR_BACKOFF_SETTING)
-  // hold sync credentials — raw device pairing secrets and pairing state — and must
-  // never be reachable through this general-purpose renderer-facing channel. A
-  // compromised renderer (XSS, a bad bundled dep) could otherwise exfiltrate every
-  // paired phone's long-term secret via getSetting, or implant a rogue device key via
-  // setSetting to bypass the pairing ceremony entirely. The dedicated `sync:*` IPC
-  // channels already expose everything the renderer legitimately needs (status, port,
-  // pairing code) without touching the raw settings row.
+  // db:getSetting / db:setSetting are a general-purpose renderer-facing channel over the
+  // `settings` table. That table also holds sync credentials under `sync.*` keys
+  // (DEVICE_KEYS_SETTING, PENDING_PAIRINGS_SETTING, PAIR_BACKOFF_SETTING) -- raw device
+  // pairing secrets and pairing state -- and internal bookkeeping like
+  // `app.last_run_version` (LAST_VERSION_KEY), which gates the pre-update database
+  // snapshot in backupOnVersionChange(). A compromised renderer (XSS, a bad bundled dep)
+  // must not be able to read or write ANY of that: exfiltrate a paired phone's long-term
+  // secret via getSetting, implant a rogue device key via setSetting to bypass the pairing
+  // ceremony, or stamp app.last_run_version to the current version to suppress the backup
+  // that would otherwise run before a migration.
+  //
+  // This is an ALLOWLIST, not a denylist of known-sensitive prefixes: only the exact key
+  // shapes the renderer legitimately uses today are permitted, so a future sensitive key
+  // is unreachable by construction instead of depending on someone remembering to add it
+  // to a blocklist. Verified against every getSetting/setSetting call site under
+  // windows/src/renderer and windows/src/preload -- the only caller is BadHabitsPage.tsx,
+  // which reads/writes exactly:
+  //   badhabits:<date>:alcohol:level
+  //   badhabits:<date>:weed:level
+  // <date> comes from useDateNav's yyyy-MM-dd string but is matched generically here
+  // (any run of non-colon characters) rather than re-validated as a date, since this guard
+  // is about which *keys* are reachable, not about revalidating renderer-owned data shape.
+  const ALLOWED_SETTING_KEY = /^badhabits:[^:]+:(?:alcohol|weed):level$/
+
+  const assertSettingKeyAllowed = (key: string): void => {
+    if (!ALLOWED_SETTING_KEY.test(key)) {
+      throw new Error('Access to this setting is not permitted via this channel')
+    }
+  }
+
   ipcMain.handle('db:getSetting', (_e, key: string) => {
-    if (key.startsWith('sync.')) throw new Error('Access to sync settings is not permitted via this channel')
+    assertSettingKeyAllowed(key)
     const row: any = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
     return row ? row.value : null
   })
 
   ipcMain.handle('db:setSetting', (_e, key: string, value: string) => {
-    if (key.startsWith('sync.')) throw new Error('Access to sync settings is not permitted via this channel')
+    assertSettingKeyAllowed(key)
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
   })
 }

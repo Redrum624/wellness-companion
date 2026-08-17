@@ -65,14 +65,22 @@ if not defined ADB (
         exit /b 1
     )
 
-    :: Integrity check. Unlike setup_model.ps1's model download (a fixed,
-    :: content-addressed file that a single baked-in SHA-256 can pin forever),
-    :: this URL is Google's rolling "latest" platform-tools build: its bytes
-    :: (and therefore its hash) change every time Google ships a new release,
-    :: so a hardcoded pin here would go stale and start failing legitimate
-    :: installs. Instead: compute the real hash, verify it if the caller
-    :: opted in via WC_PLATFORM_TOOLS_SHA256, and otherwise show it with a
-    :: clear warning so a security-conscious user/operator can pin it.
+    rem Integrity check. Unlike setup_model.ps1's model download (a fixed,
+    rem content-addressed file that a single baked-in SHA-256 can pin forever),
+    rem this URL is Google's rolling "latest" platform-tools build: its bytes
+    rem (and therefore its hash) change every time Google ships a new release,
+    rem so a hardcoded pin here would go stale and start failing legitimate
+    rem installs. Instead: compute the real hash, verify it if the caller
+    rem opted in via WC_PLATFORM_TOOLS_SHA256, and otherwise show it with a
+    rem clear warning so a security-conscious user/operator can pin it.
+    rem
+    rem ZIP_SHA256 is cleared first: it would otherwise still hold whatever
+    rem value the CALLER's environment happened to set before this script ran.
+    rem If Get-FileHash emits nothing (PowerShell blocked/missing), the for /f
+    rem body never executes -- and without this clear, a pre-set ZIP_SHA256
+    rem that happens to match WC_PLATFORM_TOOLS_SHA256 would pass the check
+    rem below without any hash actually having been computed.
+    set "ZIP_SHA256="
     for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-FileHash -LiteralPath '!ZIP_FILE!' -Algorithm SHA256).Hash.ToLower()"`) do set "ZIP_SHA256=%%H"
     if defined WC_PLATFORM_TOOLS_SHA256 (
         if /i not "!ZIP_SHA256!"=="!WC_PLATFORM_TOOLS_SHA256!" (
@@ -180,11 +188,11 @@ del /q "%INSTALL_LOG%" 2>nul
 if not "%INSTALL_RC%"=="0" (
     echo.
     if "%SIG_MISMATCH%"=="0" (
-        :: A debug-signed phone meeting a release-signed build ^(or vice
-        :: versa^) is a DIFFERENT app to Android - it refuses to install over
-        :: the existing one. Never auto-uninstall here: uninstalling wipes the
-        :: phone's local database, so the phone must sync everything to the
-        :: desktop FIRST.
+        rem A debug-signed phone meeting a release-signed build ^(or vice
+        rem versa^) is a DIFFERENT app to Android - it refuses to install over
+        rem the existing one. Never auto-uninstall here: uninstalling wipes the
+        rem phone's local database, so the phone must sync everything to the
+        rem desktop FIRST.
         echo   [ERROR] This phone has a differently-signed copy installed -
         echo           installing over it is blocked to protect your data.
         echo           Do this, in order:

@@ -18,6 +18,7 @@ Usage:
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -27,6 +28,18 @@ from pathlib import Path
 
 # Android artifact prefix -> (license name, url). Every dependency declared in
 # android/app/build.gradle.kts must match one of these or be reported UNKNOWN.
+#
+# Most entries here are deliberately group-level prefixes (androidx., etc.) --
+# every artifact under those groups genuinely shares one license. The
+# net.zetetic entry is the exception: Zetetic ships SQLCipher for Android
+# both as this free, BSD-style-licensed Community Edition AND as a separately
+# licensed commercial edition, both published under the net.zetetic group. A
+# group-level prefix would auto-label a future commercial net.zetetic
+# artifact as "Community Edition (BSD-style)", which would be wrong. So this
+# one entry is pinned to the full group:artifact coordinate of the specific
+# dependency this project actually uses (see android/app/build.gradle.kts);
+# any other net.zetetic artifact falls through to UNKNOWN instead of
+# silently inheriting this license.
 ANDROID_LICENSES = [
     ("androidx.", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
     ("com.google.android.material", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
@@ -38,15 +51,35 @@ ANDROID_LICENSES = [
     ("org.jetbrains.kotlin", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
     ("org.jetbrains.kotlinx", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
     ("junit", "Eclipse Public License 1.0", "https://www.eclipse.org/legal/epl-v10.html"),
-    ("net.zetetic", "SQLCipher Community Edition License (BSD-style)", "https://www.zetetic.net/sqlcipher/license/"),
+    ("net.zetetic:sqlcipher-android", "SQLCipher Community Edition License (BSD-style)", "https://www.zetetic.net/sqlcipher/license/"),
 ]
 
 DEP_RE = re.compile(r'^\s*(?:implementation|api|ksp|testImplementation|androidTestImplementation|debugImplementation)\s*\(\s*"([^":]+):([^":]+)(?::([^"]+))?"\s*\)')
 
 
+def _which_on_path(cmd: str):
+    """shutil.which() that never resolves to the current working directory.
+
+    On Windows, shutil.which() unconditionally prepends the current directory
+    to the search path ahead of PATH itself, regardless of whether the
+    caller passes an explicit `path=`. That means a malicious npx.cmd/npx.exe
+    dropped in the CWD -- e.g. this repo's own root, if the script is ever
+    invoked from there -- would be resolved and executed instead of (or
+    ahead of) the real npx on PATH. Resolve normally, then reject any match
+    whose containing directory isn't actually one of PATH's directories.
+    """
+    found = shutil.which(cmd)
+    if not found:
+        return None
+    path_dirs = {Path(p).resolve() for p in os.environ.get("PATH", "").split(os.pathsep) if p}
+    if Path(found).parent.resolve() not in path_dirs:
+        return None
+    return found
+
+
 def npm_licenses(windows_dir: Path):
     """{license: [(name, versions)]} for production npm deps."""
-    npx = shutil.which("npx")  # resolves to npx.CMD on Windows; shutil.which applies PATHEXT
+    npx = _which_on_path("npx")  # resolves to npx.CMD on Windows; shutil.which applies PATHEXT
     if not npx:
         sys.stderr.write("[WARN] could not find npx on PATH\n")
         return {}
