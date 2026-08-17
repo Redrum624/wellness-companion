@@ -64,6 +64,38 @@ if not defined ADB (
         pause
         exit /b 1
     )
+
+    :: Integrity check. Unlike setup_model.ps1's model download (a fixed,
+    :: content-addressed file that a single baked-in SHA-256 can pin forever),
+    :: this URL is Google's rolling "latest" platform-tools build: its bytes
+    :: (and therefore its hash) change every time Google ships a new release,
+    :: so a hardcoded pin here would go stale and start failing legitimate
+    :: installs. Instead: compute the real hash, verify it if the caller
+    :: opted in via WC_PLATFORM_TOOLS_SHA256, and otherwise show it with a
+    :: clear warning so a security-conscious user/operator can pin it.
+    for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-FileHash -LiteralPath '!ZIP_FILE!' -Algorithm SHA256).Hash.ToLower()"`) do set "ZIP_SHA256=%%H"
+    if defined WC_PLATFORM_TOOLS_SHA256 (
+        if /i not "!ZIP_SHA256!"=="!WC_PLATFORM_TOOLS_SHA256!" (
+            echo   [ERROR] platform-tools.zip SHA-256 does not match WC_PLATFORM_TOOLS_SHA256.
+            echo           expected: !WC_PLATFORM_TOOLS_SHA256!
+            echo           actual:   !ZIP_SHA256!
+            echo           This may mean the download was tampered with, or that Google
+            echo           shipped a new platform-tools release ^(update your pinned
+            echo           hash if so^). Aborting without extracting.
+            del /q "!ZIP_FILE!" 2>nul
+            pause
+            exit /b 1
+        )
+        echo   [OK] platform-tools.zip SHA-256 verified against WC_PLATFORM_TOOLS_SHA256.
+    ) else (
+        echo   [WARN] Integrity of platform-tools.zip was not verified - no expected
+        echo          hash was configured. SHA-256: !ZIP_SHA256!
+        echo          This "latest" URL changes on every platform-tools release, so it
+        echo          cannot ship a single hardcoded pin. To verify it yourself, set the
+        echo          WC_PLATFORM_TOOLS_SHA256 environment variable to the expected
+        echo          hash before running this installer.
+    )
+
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '!ZIP_FILE!' -DestinationPath '%DATA_ROOT%\tools' -Force"
     if errorlevel 1 (
         echo   [ERROR] Could not extract platform-tools.

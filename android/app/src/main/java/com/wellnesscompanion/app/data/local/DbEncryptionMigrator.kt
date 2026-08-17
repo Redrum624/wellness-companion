@@ -27,7 +27,7 @@ internal typealias RenameFn = (from: File, to: File) -> Boolean
  * launch. Mirrors the desktop's `migrateToEncryptedIfNeeded` /
  * `recoverInterruptedSwap` discipline (`windows/src/main/database.ts`).
  *
- * Divergence from the brief (load-bearing, see task-4-report.md): the pinned
+ * Divergence from the brief (load-bearing): the pinned
  * artifact `net.zetetic:sqlcipher-android:4.17.0` is the NEW rewritten
  * "SQLCipher for Android" (github.com/sqlcipher/sqlcipher-android), not the
  * classic `net.sqlcipher.database` wrapper the brief/spec snippets were written

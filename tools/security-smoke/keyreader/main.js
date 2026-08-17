@@ -9,6 +9,13 @@ const keyPath = process.argv[2]
 const dbPath = process.argv[3]
 const sql = process.argv[4] || null
 
+// Read-only by default: this tool's README says to point it at a COPY of the
+// live DB, but nothing enforced that -- an accidental `%APPDATA%` path plus a
+// destructive SQL argument could otherwise mutate a real user's database.
+// Pass --allow-write anywhere on the command line to open read/write.
+const allowWrite = process.argv.includes('--allow-write')
+if (!allowWrite) console.log('opening read-only (pass --allow-write to allow mutating statements)')
+
 // Chromium's OSCrypt on Windows keeps its DPAPI-wrapped key in <userData>/Local State,
 // so the helper must run against a userData dir carrying the SAME Local State as the app.
 const shadow = process.argv[5]
@@ -27,13 +34,13 @@ app.whenReady().then(() => {
     console.log('plaintext SQLite header:', hdr.toString('latin1').startsWith('SQLite format 3\0'))
     // Prove it is NOT readable without the key
     try {
-      const bare = new Database(dbPath)
+      const bare = new Database(dbPath, { readonly: true })
       bare.prepare('SELECT count(*) FROM entries').get()
       console.log('UNKEYED READ: SUCCEEDED  <-- NOT ciphertext')
       bare.close()
     } catch (e) { console.log('unkeyed read rejected:', e.message.split('\n')[0]) }
 
-    const db = new Database(dbPath)
+    const db = new Database(dbPath, { readonly: !allowWrite })
     db.pragma("cipher='sqlcipher'"); db.pragma('legacy=4')
     db.key(key) // the library's own keying call, exactly as openDatabaseHandle() does
     for (const t of ['entries','hobbies','people','chore_templates','settings']) {

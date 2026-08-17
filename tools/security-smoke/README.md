@@ -84,3 +84,19 @@ Prints the unwrapped key length, the DB's first 16 header bytes (ciphertext
 has no `SQLite format 3\0` header), confirms an unkeyed open is rejected, then
 opens it keyed and reports `SELECT COUNT(*)` for each table (and runs the
 optional SQL if given).
+
+**Opens the database read-only by default.** The README above says to point
+this at a *copy* of `wellness.db`, but nothing used to stop someone aiming it
+at the live `%APPDATA%\wellness-companion\wellness.db` and running a
+destructive optional-SQL statement against it. By default the keyed handle is
+opened with `readonly: true`, so any `UPDATE`/`DELETE`/`INSERT`/DDL in the
+optional SQL argument fails instead of mutating the file. Pass `--allow-write`
+as an **extra, trailing** argument (after the shadow-userData-dir) to open
+read/write when you deliberately need to mutate a disposable copy:
+
+```bash
+"windows/node_modules/electron/dist/electron.exe" tools/security-smoke/keyreader \
+  <path-to-wellness.key> <path-to-copy-of-wellness.db> "<SQL>" <path-to-shadow-userData-dir> --allow-write
+```
+
+Only ever pass `--allow-write` against a copy you are willing to lose.

@@ -19,6 +19,7 @@ Usage:
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from collections import defaultdict
@@ -44,10 +45,14 @@ DEP_RE = re.compile(r'^\s*(?:implementation|api|ksp|testImplementation|androidTe
 
 def npm_licenses(windows_dir: Path):
     """{license: [(name, versions)]} for production npm deps."""
+    npx = shutil.which("npx")  # resolves to npx.CMD on Windows; shutil.which applies PATHEXT
+    if not npx:
+        sys.stderr.write("[WARN] could not find npx on PATH\n")
+        return {}
     try:
         out = subprocess.run(
-            ["npx", "pnpm", "licenses", "list", "--prod", "--json"],
-            cwd=windows_dir, capture_output=True, text=True, shell=True, timeout=300,
+            [npx, "pnpm", "licenses", "list", "--prod", "--json"],
+            cwd=windows_dir, capture_output=True, text=True, timeout=300,
         ).stdout
         start = out.find("{")
         data = json.loads(out[start:]) if start >= 0 else {}

@@ -1096,12 +1096,22 @@ export function registerDatabaseHandlers(): void {
   })
 
   // Settings
+  // `sync.*` keys (DEVICE_KEYS_SETTING, PENDING_PAIRINGS_SETTING, PAIR_BACKOFF_SETTING)
+  // hold sync credentials — raw device pairing secrets and pairing state — and must
+  // never be reachable through this general-purpose renderer-facing channel. A
+  // compromised renderer (XSS, a bad bundled dep) could otherwise exfiltrate every
+  // paired phone's long-term secret via getSetting, or implant a rogue device key via
+  // setSetting to bypass the pairing ceremony entirely. The dedicated `sync:*` IPC
+  // channels already expose everything the renderer legitimately needs (status, port,
+  // pairing code) without touching the raw settings row.
   ipcMain.handle('db:getSetting', (_e, key: string) => {
+    if (key.startsWith('sync.')) throw new Error('Access to sync settings is not permitted via this channel')
     const row: any = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
     return row ? row.value : null
   })
 
   ipcMain.handle('db:setSetting', (_e, key: string, value: string) => {
+    if (key.startsWith('sync.')) throw new Error('Access to sync settings is not permitted via this channel')
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
   })
 }
