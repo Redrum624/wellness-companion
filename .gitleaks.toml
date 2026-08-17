@@ -1,0 +1,64 @@
+# gitleaks configuration
+#
+# Everything in gitleaks' default rule set stays on. The only additions are
+# three narrowly-scoped allowlists for known-answer crypto test vectors in
+# shared/crypto-vectors.json that the entropy-based `generic-api-key` rule
+# mistakes for credentials.
+#
+# Each allowlist below pins ONE finding: the exact file AND the exact byte
+# string, joined with `condition = "AND"`. Nothing else in that file — and no
+# other file — is exempted, so a genuinely new secret added anywhere, including
+# on the very next line of crypto-vectors.json, still fails the scan.
+#
+# (gitleaks' TOML allowlists have no fingerprint field — fingerprints live in
+# .gitleaksignore and are prefixed with the commit SHA, which is regenerated
+# every time the public tree is re-exported, so a fingerprint list would go
+# stale on each export. Pinning the literal value is the stable equivalent and
+# is strictly narrower: a fingerprint exempts whatever sits at that line, this
+# exempts only these exact bytes.)
+#
+# What shared/crypto-vectors.json is: a cross-platform known-answer test (KAT)
+# fixture, read by both the desktop and Android suites (windows/test/vectors.test.ts,
+# android/.../SyncCryptoVectorTest.kt, and other consumers) so that the two
+# implementations are proven to agree byte-for-byte. Its first section is RFC 5869
+# Appendix A reproduced verbatim. Every value is generated deterministically by
+# scripts/gen-crypto-vectors.py and is published on purpose — they are inputs and
+# expected outputs, never live key material. No device, database, or sync session
+# has ever used them.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+crypto-vectors.json: the pinned HKDF input secret for the psk_from_secret vector.
+16 fixed bytes fed to psk = HKDF-SHA256(ikm=secret, salt=empty, info="wc-psk").
+scripts/gen-crypto-vectors.py annotates this exact constant `# PIN: fixed 16 bytes`
+precisely because it must never be regenerated — if it changed, the desktop and
+Android suites would stop testing the same vector.
+"""
+condition = "AND"
+paths = ['''(^|/)shared/crypto-vectors\.json$''']
+regexTarget = "match"
+regexes = ['''4f1c9a37e0b5d284c6317fa8905e2db3''']
+
+[[allowlists]]
+description = """
+crypto-vectors.json: the AES-256-GCM record key for the gcm_record (client->server)
+vector. A derived test key that exists only to check both platforms produce the same
+ct_tag for a fixed nonce/aad/plaintext triple.
+"""
+condition = "AND"
+paths = ['''(^|/)shared/crypto-vectors\.json$''']
+regexTarget = "match"
+regexes = ['''9f3e337f8a863c67093205ec596fde6ba547e559e95e4a2cc707cfa05529fd8c''']
+
+[[allowlists]]
+description = """
+crypto-vectors.json: the AES-256-GCM record key for the gcm_record_s2c
+(server->client) vector. Same role as the one above, for the reverse direction.
+"""
+condition = "AND"
+paths = ['''(^|/)shared/crypto-vectors\.json$''']
+regexTarget = "match"
+regexes = ['''dfba2a1d1c1cd4cddeb360fdebfd63e10bf93a081624abe08ff18a53b4b989f9''']
