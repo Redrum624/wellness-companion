@@ -2,6 +2,73 @@
 
 All notable changes to Wellness Companion are documented here.
 
+## [1.3.1] - 2026-08-17
+
+A maintenance release. The desktop build packages its local model runtime again, the settings
+channel can no longer be used to reach sync credentials, and the desktop runtime moves to a Chromium
+line that still receives security backports. No new features, no data migration, no re-pairing.
+
+### Fixed
+
+- **The desktop build shipped a local model that could not load.** Cause: electron-builder 26
+  (pulled in by the Electron 43 bump below) reads the `packageManager` field, discards it, and
+  re-derives the answer from a `pnpm --workspace-root exec pwd` probe. Under `cmd`/PowerShell `pwd`
+  is not a command, the probe fails, and the correct answer survives; under any POSIX shell it is a
+  builtin, the probe returns an MSYS path (`/c/...`) that Node cannot resolve a `package.json` at,
+  and the builder falls back to guessing from `npm_config_user_agent` — which says npm whenever the
+  build was launched through `npx`, as `installer\build_installer.bat` does. An npm-shaped walk of a
+  pnpm virtual store never reaches the `@node-llama-cpp/<platform>` packages that sit beside
+  `node-llama-cpp` inside `.pnpm/`, so they were dropped from the production dependency graph and
+  the packaged app shipped only the `bins/*.moved.txt` placeholders: local AI generation could not
+  work, and the installer came out 175 MB short. Every installer built between the builder bump and
+  this fix is affected. Fix: `nodeLinker: hoisted` gives every collector a layout it understands, so
+  packaging no longer depends on which shell started the build; the setting lives in
+  `pnpm-workspace.yaml` because pnpm 11 no longer reads `node-linker` from `.npmrc`. Affects:
+  `windows/pnpm-workspace.yaml`.
+- **Sync credentials were reachable over the settings IPC.** Cause: `db:getSetting`/`db:setSetting`
+  accepted any renderer-supplied key, including the `sync.*` keys that hold device pairing secrets,
+  pending pairings and pairing backoff state — a compromised renderer could exfiltrate or implant
+  them directly without going near the `sync:*` channels. Fix: both handlers now take an allowlist
+  of the exact keys the renderer legitimately uses, so `sync.*`, `app.last_run_version` and any
+  future sensitive key fail closed by construction instead of depending on a denylist entry; a
+  call-site survey confirmed the dedicated `sync:*` channels already cover every renderer need.
+  Affects: `windows/src/main/database.ts`, new `windows/test/settings-ipc-guard.test.ts`.
+- **Build and diagnostic tooling ran with more privilege than it needed.** Cause: the keyreader
+  smoke tool ran caller-supplied SQL against any given database path with no read-only guard (and
+  only honoured `--allow-write` when the flag trailed the other arguments);
+  `make_third_party_licenses.py` used `subprocess(shell=True)` for a static command and let
+  `shutil.which()` resolve `npx` from the current directory ahead of `PATH`; and
+  `install_phone_app.bat` fetched Google's platform-tools zip with no integrity check. Fix:
+  keyreader opens read-only unless `--allow-write` is passed, and filters that flag out of argv
+  before positional parsing; the license generator drops `shell=True` and passes an argument list;
+  the phone installer clears `ZIP_SHA256` before computing it so a caller-inherited value cannot
+  pass verification unchecked, checks the computed hash against an optional
+  `WC_PLATFORM_TOOLS_SHA256` override, and otherwise warns with the hash and how to pin it — the
+  upstream URL is a rolling "latest" build, so a baked-in hash would go stale on the next
+  platform-tools release. Affects: `tools/security-smoke/keyreader/main.js`,
+  `installer/make_third_party_licenses.py`, `installer/install_phone_app.bat`.
+
+### Changed
+
+- **Electron 33.2.1 → 43.4.0 (Chromium 130 → 150, Node 24.18.1).** Why: Electron 33 no longer
+  receives Chromium security backports, and the renderer parses sync JSON that arrives from the LAN.
+  electron-builder 25.1.8 → 26.15.3 came with it out of necessity, not tidiness: 25.x pulls node-gyp
+  9.4.1, whose vendored gyp imports Python `distutils` (removed in 3.12+), so the native rebuild
+  against Electron 43 failed outright — Electron 33 had masked that by resolving a prebuilt binary
+  instead of compiling. `better-sqlite3-multiple-ciphers` stays at 12.11.1: Node-API is forward
+  compatible, so the NAPI-9 module loads on Electron 43's higher level, and the at-rest path was
+  verified end to end against a real encrypted database (same entry count before and after, file
+  byte-identical, key not rewrapped). Affects: `windows/package.json`, `windows/pnpm-lock.yaml`,
+  `windows/pnpm-workspace.yaml`.
+- **The packaged app no longer carries its own sources.** A `files` allowlist keeps `src/`, `test/`
+  and the tsconfigs out of `app.asar`. Affects: `windows/package.json`.
+- **Documentation now matches the shipped state.** The README leads with the health-data notice, the
+  self-signed-installer disclosure and download-verification steps, and says how Gradle locates the
+  Android SDK; `docs/PROJECT_SPEC.md` no longer asserts the pre-1.3.0 plaintext-sync posture; and
+  `THIRD-PARTY-LICENSES.md` was regenerated after SQLCipher was found to have no attribution.
+  Affects: `README.md`, `SECURITY.md`, `docs/PROJECT_SPEC.md`, `THIRD-PARTY-LICENSES.md`,
+  `CONTRIBUTING.md`, `tools/security-smoke/README.md`.
+
 ## [1.3.0] - 2026-08-15
 
 The security release: sync traffic and both local databases are now encrypted, and the phone build
