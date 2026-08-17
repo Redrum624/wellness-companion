@@ -118,7 +118,8 @@ sensitive data.
 - **The shipped phone build is debug-signed** unless the maintainer supplies a release keystore. A
   debug-signed APK is `debuggable`, which is what makes the `run-as` gap above possible for anyone
   with USB access to an unlocked device. Release signing is wired up in
-  `android/app/build.gradle.kts`; see the comment at the top of that file.
+  `android/app/build.gradle.kts`; see the comment at the top of that file, or the full walkthrough
+  in [docs/signing-guide.md](docs/signing-guide.md).
 
 ## What the project deliberately does not do
 

@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Redrum624/wellness-companion/releases"><img src=".github/badges/downloads-badge.svg" alt="Total downloads"></a>
-  <a href="https://github.com/Redrum624/wellness-companion/releases/latest"><img src=".github/badges/latest-badge.svg" alt="Latest release"></a>
+  <a href="https://github.com/Redrum624/Wellness-Companion/releases"><img src=".github/badges/downloads-badge.svg" alt="Total downloads"></a>
+  <a href="https://github.com/Redrum624/Wellness-Companion/releases/latest"><img src=".github/badges/latest-badge.svg" alt="Latest release"></a>
 </p>
 
 <p align="center">
@@ -61,7 +61,7 @@ and writes weekly summaries with a local LLM.
 | | Phone (Android) | Desktop (Windows) |
 |---|---|---|
 | **Role** | Primary — log things as they happen | Optional — analyse, summarise, archive |
-| **Stack** | Kotlin · Jetpack Compose · Room | Electron · React · better-sqlite3 |
+| **Stack** | Kotlin · Jetpack Compose · Room | Electron · React · better-sqlite3-multiple-ciphers |
 | **Standalone?** | Yes, fully usable alone | Needs the phone for data |
 | **AI** | — | Qwen3-4B, runs locally |
 
@@ -90,16 +90,17 @@ and writes weekly summaries with a local LLM.
 
 **Sync** — mDNS discovery, end-to-end encrypted over WebSocket on port 9847 (ephemeral ECDH +
 AES-256-GCM) · single-code device pairing, no shared password · per-device pairing management —
-remove one device without touching the rest · incremental transfers · manual IP fallback when
-multicast is blocked.
+remove one device without touching the rest, or **Forget all devices** to revoke every paired
+phone at once · incremental transfers · manual IP fallback when multicast is blocked.
 
 **On the phone** — hydration, meal, evening check-in and refill reminders · weekly trend charts ·
 unit conversion · a small celebration when you hit a goal · earlier ideas grouped by day, not just
 today's.
 
 **On the desktop** — offline AI insights via `node-llama-cpp` · a 52-week calendar heatmap · a
-chronological timeline of the day across every category · a *manage people* panel that deletes a
-person from the journal's suggestion list, and keeps them deleted on every synced device.
+chronological timeline of the day across every category, quick-filterable by 9 of the 12 · a
+*manage people* panel that deletes a person from the journal's suggestion list, and keeps them
+deleted on every synced device.
 
 **Everywhere** — per-category streaks · daily goals as `X/Y` progress · one-tap quick buttons for
 routine amounts · star ratings, sliders and tag input with recall · a consistent pastel colour
@@ -121,8 +122,8 @@ snapshots.
 
 ### Insights, written locally
 
-Ask a question about your own data, or generate a weekly portrait, a pattern search, or a monthly
-deep dive. The model reads your entries from the local database and runs on your GPU — nothing is
+Ask a question about your own data, or generate a **Weekly Portrait**, **Find Patterns**, or a
+**Monthly Deep Dive**. The model reads your entries from the local database and runs on your GPU — nothing is
 uploaded, and the app works exactly the same with the network off.
 
 It is written to be specific rather than reassuring: it cites the actual figures, says plainly when
@@ -181,11 +182,12 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 **2. That's it** — the phone app works on its own. Stop here if you don't want the desktop half.
 
 **3. Optional: add the desktop app.** Download `Wellness Companion Setup <version>.exe` from the
-[Releases page](https://github.com/Redrum624/wellness-companion/releases/latest) and run it. One
+[Releases page](https://github.com/Redrum624/Wellness-Companion/releases/latest) and run it. One
 file contains the app, the Visual C++ runtime, and the Android package.
 
 **4. Pair them.** Open the desktop app and click **Pair a device** in its sidebar for a one-time
-code. On the phone, tap **🔄 Sync**, enter the code, tap **Pair**, then **Sync**. Once per device.
+code. On the phone's Dashboard, tap the **Sync** toggle to open the sync panel (it reads **Hide
+sync** once open), enter the code, tap **Pair**, then **Sync**. Once per device.
 
 ### Updating
 
@@ -204,8 +206,10 @@ a tombstone reply and zero rows move. The installer's "Update the app on my phon
 therefore **checked by default**; if you skip it, the desktop shows a banner as soon as an old phone
 tries to sync ("Your phone app is older than this PC app. Open 'Install the phone app' from the
 Start Menu to update it."), and the phone side shows its own "update the desktop" prompt if the
-version is reversed. `install_phone_app.bat` also prints both apps' versions before installing so
-a mismatch is visible up front.
+version is reversed. `install_phone_app.bat` also prints the desktop build's version as both the
+"Desktop app version" and "Phone APK version" before installing — it's a build-time label stamped
+from the same installer build, not a live read of what's already on the phone, so the banner and
+prompt above are what actually catch a real mismatch.
 
 **Re-pair once after updating.** The old pairing token is dead by design under `wc-sync/4` — after
 you've updated both apps, sync will not resume on its own. Open the desktop sidebar, click **Pair a
@@ -233,8 +237,9 @@ detects this exact failure and stops before doing anything destructive. Do this 
 ## Pairing the phone with the PC
 
 Open the desktop app first, then click **Pair a device** in its sidebar for a one-time **pairing
-code** — 33 characters, grouped with dashes so it's easy to type. On the phone, tap **🔄 Sync**,
-type the code in, tap **Pair**, then **Sync**. You do this once per device; the phone remembers it,
+code** — 33 characters, grouped with dashes so it's easy to type. On the phone's Dashboard, tap the
+**Sync** toggle to open the sync panel (it reads **Hide sync** once open), type the code in, tap
+**Pair**, then **Sync**. You do this once per device; the phone remembers it,
 and the desktop sidebar lists every paired device with its own **Remove**, so losing one phone
 doesn't mean forgetting the rest.
 
@@ -256,6 +261,7 @@ reads the code off your screen while you're pairing can pair a device of their o
 released phone build is still debug-signed, so USB access to an unlocked phone can still reach the
 app's live data through its own debug hooks even with the database file encrypted. Use it on
 networks and devices you trust; [SECURITY.md](SECURITY.md) has the full residual-risk picture.
+
 ## Building from source
 
 <details>
@@ -324,10 +330,12 @@ hand for a clean slate.
 ```
 wellness_companion/
   android/      Kotlin + Jetpack Compose; Room, Hilt, WorkManager reminders
-  windows/      Electron + React + TypeScript; better-sqlite3, node-llama-cpp
+  windows/      Electron + React + TypeScript; better-sqlite3-multiple-ciphers, node-llama-cpp
   installer/    Inno Setup script, build orchestrator, model provisioning, ADB sideload
   model/        The GGUF model (not in version control — fetched at install time)
   docs/         Design spec, health guidelines, screenshots, prototypes
+  tools/        Security-smoke test instruments for the sync protocol
+  shared/       Cross-platform fixtures (e.g. crypto test vectors) read by both apps' test suites
 ```
 
 The two apps share no code, but they share a schema: entries are rows keyed by date and category.
@@ -380,7 +388,7 @@ sequenceDiagram
     D-->>P: mDNS: "wellness-companion-sync"
     P->>D: connect
     D->>P: hello { nonce_s }
-    P->>D: hs1 { pub_c, nonce_c, keyId, deviceId, deviceName }
+    P->>D: hs1 { proto, pub_c, nonce_c, keyId, deviceId, deviceName }
     Note over P,D: unauthenticated — includes the phone's device name (a documented residual)
     D->>P: hs2 { pub_s, mac_s }
     P->>D: hs3 { mac_c }

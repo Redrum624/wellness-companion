@@ -1,10 +1,9 @@
 # Security interop smoke instruments
 
-Test tooling used to execute the security interop smoke plan (§9 of the internal security-hardening spec),
-the cross-platform interop release gate for `wc-sync/4`. They are re-runnable
-scripts, not shipped app code — nothing here is bundled into the packaged
-desktop build (they live outside `windows/`, which is electron-builder's app
-root) and nothing here reads or writes a database by default.
+Test tooling used to execute spec §9, the cross-platform interop release gate for `wc-sync/4`.
+They are re-runnable scripts, not shipped app code — nothing here is bundled into the packaged
+desktop build (they live outside `windows/`, which is electron-builder's app root) and nothing
+here reads or writes a database by default.
 
 No secrets, keys, or captured user data are committed. Every script takes its
 targets (URL, port, file paths) as CLI arguments; nothing is hardcoded to a

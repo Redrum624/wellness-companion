@@ -38,6 +38,7 @@ ANDROID_LICENSES = [
     ("org.jetbrains.kotlin", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
     ("org.jetbrains.kotlinx", "Apache License 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
     ("junit", "Eclipse Public License 1.0", "https://www.eclipse.org/legal/epl-v10.html"),
+    ("net.zetetic", "SQLCipher Community Edition License (BSD-style)", "https://www.zetetic.net/sqlcipher/license/"),
 ]
 
 DEP_RE = re.compile(r'^\s*(?:implementation|api|ksp|testImplementation|androidTestImplementation|debugImplementation)\s*\(\s*"([^":]+):([^":]+)(?::([^"]+))?"\s*\)')

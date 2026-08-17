@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Redrum624/Wellness-Companion/security/advisories/new
+    about: >-
+      Please do not report security vulnerabilities through public issues.
+      Use GitHub Security Advisories instead — see SECURITY.md.

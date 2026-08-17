@@ -12,6 +12,12 @@
 >   (~2.5 GB, not ~9 GB of VRAM).
 > - Several sync-layer and analysis features below are **not implemented** — see the inline
 >   "not implemented" markers.
+> - **The security design below is superseded and partly inaccurate.** It describes an
+>   eight-character pairing code, a plaintext `ws://` transport, and an unencrypted database —
+>   none of which shipped. The real design (`wc-sync/4`: per-connection ECDH + AES-256-GCM
+>   transport, a 33-character pairing code, and databases encrypted at rest on both platforms) is
+>   documented in **[SECURITY.md](../SECURITY.md)**, which is authoritative for the app's
+>   security posture.
 > - The roadmap at the end is written as forward-looking estimates; all six phases shipped in
 >   v1.0.0 / v1.1.0.
 
@@ -49,7 +55,7 @@ Both apps share a pastel illustrated design language with Japanese-inspired deco
 - **Database:** Room (SQLite)
 - **Animations/Visuals:** Compose Canvas (custom interactive drawings)
 - **Notifications:** WorkManager (scheduled, survives restarts)
-- **Sync Client:** Ktor (WebSocket client)
+- **Sync Client:** ~~Ktor~~ — **shipped instead:** OkHttp (WebSocket client)
 - **Font:** Nunito (Google Fonts) or similar rounded sans-serif
 
 ### Windows App
@@ -66,20 +72,26 @@ Both apps share a pastel illustrated design language with Japanese-inspired deco
 
 ### Sync Layer
 
-> **Security note.** The three encryption items below were design intent and are **NOT
-> implemented**. The shipped sync channel is plaintext `ws://` on the local network, and the
-> SQLite database is not encrypted at rest. Access is controlled by an eight-character pairing
-> code that the desktop requires before serving or accepting any data. Do not rely on this
-> document for the app's security posture — README.md states the real one.
+> **Security note.** This section describes the original design intent and does not reflect the
+> shipped security posture. As of v1.3.0, sync runs over `wc-sync/4` — a fresh per-connection
+> P-256 ECDH key exchange, HKDF-SHA256, and AES-256-GCM records, authenticated by a single
+> 33-character pairing code (a 128-bit secret) with no plaintext fallback — and both the desktop
+> and phone databases are encrypted at rest. [SECURITY.md](../SECURITY.md) is the authoritative,
+> current description; do not rely on this document for the app's security posture.
 
 - **Protocol:** WebSocket. ~~HTTP polling fallback~~ — **not implemented.**
 - **Discovery:** mDNS/Bonjour (zero-config local network). Manual IP fallback. *(implemented)*
 - **Data Format:** JSON *(implemented)*
 - **Sync Strategy:** Delta sync — only changed entries sent, each entry has version number + last-modified timestamp *(implemented)*
 - **Conflict Resolution:** Last-write-wins on `modified_at`. *(implemented; per-field merge was not)*
-- **Authentication:** eight-character pairing code, required in both directions, five attempts per connection. *(implemented — added in v1.1.0, not in the original design)*
+- **Authentication:** ~~eight-character pairing code~~ — **shipped differently:** a single
+  33-character pairing code delivering a 128-bit secret, required in both directions. See
+  [SECURITY.md](../SECURITY.md).
 - **Compression:** ~~gzip~~ — **not implemented.**
-- **Encryption:** ~~TLS for transport. Optional at-rest encryption with user-set passphrase.~~ — **not implemented.**
+- **Encryption:** ~~TLS for transport. Optional at-rest encryption with user-set passphrase.~~ —
+  **implemented differently** — see [SECURITY.md](../SECURITY.md): transport is ECDH + AES-256-GCM
+  (not TLS), at-rest encryption is mandatory and platform-key-wrapped (not an optional user
+  passphrase).
 - **Schema Versioning:** Room migrations on the phone; `CREATE TABLE IF NOT EXISTS` on the desktop. *(partially implemented)*
 - **Optional Cloud Relay:** ~~For syncing when not on the same network. End-to-end encrypted.~~ — **not implemented.**
 
@@ -260,7 +272,7 @@ User data (SQLite) → Context builder (TS) → Prompt template → node-llama-c
    - **Weekly portrait:** Every Sunday, generates a narrative summary. Example: "This week you slept better but skipped hydration on work days. Your mood dipped on Wednesday — the same day you logged no hobbies."
    - **Pattern detection:** Identifies recurring correlations. Example: "You tend to feel anxious on days you skip hobbies."
    - **Conversational Q&A:** Ask questions about your data. Example: "How was my sleep last month?" "When am I most productive?"
-   - **Monthly deep dive:** **— not implemented.** Longer analysis with charts, trends, improvements, areas to focus on. Exportable as PDF.
+   - **Monthly deep dive:** *(implemented — Insights page "Monthly Deep Dive" button, 30-day window)*. Longer narrative analysis; charts, trends and PDF export remain **not implemented.**
 3. **Streaming responses:** node-llama-cpp supports token streaming, so portrait text appears word-by-word in the UI.
 
 ### Storage & Export
@@ -431,7 +443,7 @@ CREATE TABLE sync_log (
 
 ### Phase 4 — Sync Layer (3–4 weeks)
 - mDNS auto-discovery on local network
-- WebSocket server in Electron, client in Android (Ktor)
+- WebSocket server in Electron, client in Android (OkHttp)
 - JSON delta sync implementation
 - Per-field conflict resolution
 - Thorough testing with simultaneous edits

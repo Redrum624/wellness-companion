@@ -29,7 +29,7 @@ for fonts at runtime.
 The installer bundles the **Microsoft Visual C++ Redistributable**, which is
 redistributable under the Microsoft Visual Studio redistributable terms.
 
-## Desktop app — npm dependencies (151 production packages)
+## Desktop app — npm dependencies (152 production packages)
 
 ### (BSD-2-Clause OR MIT OR Apache-2.0)
 
@@ -79,6 +79,7 @@ redistributable under the Microsoft Visual Studio redistributable terms.
 | `inherits` | 2.0.4 |
 | `ini` | 1.3.8 |
 | `isexe` | 2.0.0 |
+| `lucide-react` | 1.31.0 |
 | `once` | 1.4.0 |
 | `semver` | 7.8.1 |
 | `signal-exit` | 3.0.7, 4.1.0 |
@@ -111,7 +112,7 @@ redistributable under the Microsoft Visual Studio redistributable terms.
 | `ansi-styles` | 4.3.0, 6.2.3 |
 | `async-retry` | 1.3.3 |
 | `base64-js` | 1.5.1 |
-| `better-sqlite3` | 11.10.0 |
+| `better-sqlite3-multiple-ciphers` | 12.11.1 |
 | `bindings` | 1.5.0 |
 | `bl` | 4.1.0 |
 | `bonjour-service` | 1.4.0 |
@@ -205,7 +206,7 @@ redistributable under the Microsoft Visual Studio redistributable terms.
 | `string_decoder` | 1.3.0 |
 | `strip-ansi` | 6.0.1, 7.2.0 |
 | `strip-json-comments` | 2.0.1 |
-| `tar-fs` | 2.1.4 |
+| `tar-fs` | 2.1.5 |
 | `tar-stream` | 2.2.0 |
 | `thunky` | 1.1.0 |
 | `universalify` | 2.0.1 |
@@ -217,13 +218,14 @@ redistributable under the Microsoft Visual Studio redistributable terms.
 | `yargs` | 17.7.2 |
 | `yoctocolors` | 2.1.2 |
 
-## Phone app — Gradle dependencies (21 declared artifacts)
+## Phone app — Gradle dependencies (26 declared artifacts)
 
 | artifact | license |
 |---|---|
 | `androidx.activity:activity-compose` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.compose.foundation:foundation` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.compose.material3:material3` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| `androidx.compose.material:material-icons-extended` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.compose.ui:ui` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.compose.ui:ui-tooling` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.compose.ui:ui-tooling-preview` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
@@ -237,11 +239,15 @@ redistributable under the Microsoft Visual Studio redistributable terms.
 | `androidx.room:room-compiler` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.room:room-ktx` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.room:room-runtime` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| `androidx.sqlite:sqlite` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| `androidx.sqlite:sqlite-android` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `androidx.work:work-runtime-ktx` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `com.google.code.gson:gson` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `com.google.dagger:hilt-android` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `com.google.dagger:hilt-android-compiler` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `com.squareup.okhttp3:okhttp` | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| `junit:junit` | [Eclipse Public License 1.0](https://www.eclipse.org/legal/epl-v10.html) |
+| `net.zetetic:sqlcipher-android` | [SQLCipher Community Edition License (BSD-style)](https://www.zetetic.net/sqlcipher/license/) |
 
 Transitive Android dependencies inherit the licenses of their parents;
 the table lists what the project declares directly.
