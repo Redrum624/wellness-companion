@@ -20,3 +20,30 @@ allowBuilds:
   electron: true
   esbuild: true
   node-llama-cpp: true
+
+# Install a flat (npm-style) node_modules tree instead of pnpm's symlinked
+# virtual store. Required for packaging, not a preference:
+#
+# electron-builder 26 chooses how to walk node_modules by *detecting* the package
+# manager, and that detection is not deterministic on Windows. It reads the
+# `packageManager` field first (-> pnpm, correct), then probes for a workspace
+# root with `pnpm --workspace-root exec pwd`. Under cmd/PowerShell `pwd` is not a
+# command, the probe fails, and the correct answer survives. Under any POSIX
+# shell (Git Bash / MSYS) `pwd` is a builtin, the probe succeeds and returns an
+# MSYS path (`/c/...`); electron-builder takes that as the workspace root, finds
+# no package.json there, and falls back to guessing from npm_config_user_agent —
+# which says "npm" when the build was launched through `npx`.
+#
+# The casualty is node-llama-cpp: its llama.cpp backends ship as separate
+# `@node-llama-cpp/<platform>` packages that sit beside it inside `.pnpm/`. A
+# walk with npm's flat-layout assumptions never reaches them, they are dropped
+# from the production dependency graph, and the packaged app keeps only
+# `bins/*.moved.txt` placeholders — local AI generation cannot work and the
+# installer comes out ~175 MB short.
+#
+# A hoisted tree is the layout every collector understands, so the packaged app
+# no longer depends on which shell started the build.
+#
+# (This lives here rather than in .npmrc because pnpm 11 no longer reads
+# node-linker from .npmrc.)
+nodeLinker: hoisted
