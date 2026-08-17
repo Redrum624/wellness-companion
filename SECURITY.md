@@ -6,6 +6,12 @@ Report vulnerabilities **privately** via GitHub Security Advisories — the "Rep
 button on the Security tab — not through public issues. You'll get a response within 7 days.
 Please include reproduction steps and the version you tested.
 
+## Supported versions
+
+Only the **latest released version** receives security fixes; there are no backport branches. Both
+halves must be on that version anyway — `wc-sync/4` refuses to talk to an older peer — so the
+supported configuration is always "newest desktop app paired with newest phone app".
+
 ## Known and accepted limitations
 
 These are design trade-offs, documented so nobody has to rediscover them. They are not

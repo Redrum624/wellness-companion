@@ -65,76 +65,27 @@ and writes weekly summaries with a local LLM.
 | **Standalone?** | Yes, fully usable alone | Needs the phone for data |
 | **AI** | — | Qwen3-4B, runs locally |
 
----
+## Why Wellness Companion
 
-## Modules
+- **Nothing to sign up for.** No account, no server, no subscription — install it and start logging
+  the same minute.
+- **The AI runs on your own machine.** Weekly summaries come from a 4-billion-parameter model
+  reading a database on your own disk; switch the network off and it still writes them.
+- **Twelve categories, each with its own screen.** Water, food, sleep, emotions, cycle, chores,
+  hobbies and more — illustrated interactions, not one generic form with a dropdown.
+- **The phone alone is enough.** The Windows app is optional, and nothing on the phone depends on it.
+- **Encrypted in flight and at rest.** Both databases are ciphertext on disk, and phone-to-PC sync is
+  AES-256-GCM over your own Wi-Fi, authenticated by a single pairing code.
+- **Nothing phones home.** No analytics, no telemetry, no update pings. The one outbound request in
+  the entire project is the one-time AI model download during installation.
 
-| | Module | What you log |
-|---|---|---|
-| 🏠 | **Dashboard** | Today at a glance: progress against each goal, plus streaks |
-| 💧 | **Water** | Hydration — drag the bottle to drink; it empties as you go |
-| 🥪 | **Food** | Meals and snacks with time, description and rating |
-| 🌙 | **Sleep** | Bed/wake times, duration, and a sleep-quality bar |
-| 🌻 | **Emotions** | Mood through the day, drawn as an arc from morning to night |
-| 💚 | **Health** | Symptoms, medication, weight, general notes |
-| 🚽 | **Bathroom** | Bathroom visits — for tracking a gut or urinary condition |
-| 🩸 | **Cycle** | Menstrual cycle with phase prediction |
-| ✅ | **Chores** | Recurring household tasks from reusable templates |
-| 🎨 | **Hobbies** | Time per hobby, shown as a bowl filling with origami cranes |
-| 💡 | **Ideas** | Quick capture for thoughts worth keeping |
-| 💬 | **Journal** | Free-text diary entries tagged with people you saw |
-| ⚠️ | **Bad Habits** | The things you're cutting down on — counted, not judged |
-| 🧠 | **Insights** | AI-written weekly summaries · *desktop only* |
-
-## Features
-
-**Sync** — mDNS discovery, end-to-end encrypted over WebSocket on port 9847 (ephemeral ECDH +
-AES-256-GCM) · single-code device pairing, no shared password · per-device pairing management —
-remove one device without touching the rest, or **Forget all devices** to revoke every paired
-phone at once · incremental transfers · manual IP fallback when multicast is blocked.
-
-**On the phone** — hydration, meal, evening check-in and refill reminders · weekly trend charts ·
-unit conversion · a small celebration when you hit a goal · earlier ideas grouped by day, not just
-today's.
-
-**On the desktop** — offline AI insights via `node-llama-cpp` · a 52-week calendar heatmap · a
-chronological timeline of the day across every category, quick-filterable by 9 of the 12 · a
-*manage people* panel that deletes a person from the journal's suggestion list, and keeps them
-deleted on every synced device.
-
-**Everywhere** — per-category streaks · daily goals as `X/Y` progress · one-tap quick buttons for
-routine amounts · star ratings, sliders and tag input with recall · a consistent pastel colour
-system per category · split sleep logging — save a bedtime in the evening, complete the same night
-with your wake-up in the morning · entries encrypted at rest on both platforms.
-
-**Installing and updating** — a new Setup installs over the old one and keeps your data; the desktop
-app snapshots its database on the first launch after any version change and keeps the last five
-snapshots.
-
----
-
-## The desktop hub
-
-<p align="center">
-  <img src="docs/images/desktop.png" alt="The desktop app: sidebar, category cards and a 52-week activity heatmap" width="90%">
-</p>
-<p align="center"><sub>Today at a glance, with a year of activity below it. The pairing code lives bottom-left.</sub></p>
-
-### Insights, written locally
-
-Ask a question about your own data, or generate a **Weekly Portrait**, **Find Patterns**, or a
-**Monthly Deep Dive**. The model reads your entries from the local database and runs on your GPU — nothing is
-uploaded, and the app works exactly the same with the network off.
-
-It is written to be specific rather than reassuring: it cites the actual figures, says plainly when
-a day went badly instead of smoothing it over, points out one connection worth your attention, and
-ends with a single concrete thing to try.
-
-<p align="center">
-  <img src="docs/images/desktop-insights.png" alt="The Insights page showing an AI-written weekly portrait generated from the local database" width="90%">
-</p>
-<p align="center"><sub>A weekly portrait written by Qwen3-4B on-device — here it ties a 180 ml water
-day to the tiredness logged that evening, and a drop in energy to a short night's sleep.</sub></p>
+> **A note on health data.** Wellness Companion is a personal logbook, not a medical device. Nothing
+> it shows you is medical advice — not the AI-written insights, not the default daily goals in
+> [`docs/health_guidelines/`](docs/health_guidelines/), and not the cycle predictions, which are
+> plain arithmetic over your own history (your last period start plus your average cycle length) and
+> are not a contraceptive method. Talk to a healthcare provider about anything that matters. What you
+> log — cycle, symptoms, moods and all — stays in an encrypted database on your own phone and PC. It
+> is never uploaded, because there is nowhere to upload it to.
 
 ---
 
@@ -185,6 +136,20 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 [Releases page](https://github.com/Redrum624/Wellness-Companion/releases/latest) and run it. One
 file contains the app, the Visual C++ runtime, and the Android package.
 
+> **Windows will warn you, and it is right to.** The installer is Authenticode-signed with a
+> *self-signed* certificate — a valid signature, but not one any certificate authority vouches for —
+> so SmartScreen shows "Windows protected your PC" and names an unknown publisher. Click **More
+> info → Run anyway** if you trust the source. To confirm you got the file this repository built,
+> compare its digest against the `SHA-256` line in that release's notes:
+>
+> ```bat
+> CertUtil -hashfile "Wellness Companion Setup <version>.exe" SHA256
+> ```
+
+**What you need:** 64-bit Windows 10 version 1803 or newer · free disk space for the app plus the
+2.5 GB AI model · a GPU is optional — without one, insights are generated on the CPU, just more
+slowly · Android 8.0 (API 26) or newer on the phone.
+
 **4. Pair them.** Open the desktop app and click **Pair a device** in its sidebar for a one-time
 code. On the phone's Dashboard, tap the **Sync** toggle to open the sync panel (it reads **Hide
 sync** once open), enter the code, tap **Pair**, then **Sync**. Once per device.
@@ -232,8 +197,6 @@ detects this exact failure and stops before doing anything destructive. Do this 
 4. Run `install_phone_app.bat` (or the installer) again to put the release APK on.
 5. Re-pair the phone and sync once more.
 
----
-
 ## Pairing the phone with the PC
 
 Open the desktop app first, then click **Pair a device** in its sidebar for a one-time **pairing
@@ -261,6 +224,79 @@ reads the code off your screen while you're pairing can pair a device of their o
 released phone build is still debug-signed, so USB access to an unlocked phone can still reach the
 app's live data through its own debug hooks even with the database file encrypted. Use it on
 networks and devices you trust; [SECURITY.md](SECURITY.md) has the full residual-risk picture.
+
+---
+
+## The desktop hub
+
+<p align="center">
+  <img src="docs/images/desktop.png" alt="The desktop app: sidebar, category cards and a 52-week activity heatmap" width="90%">
+</p>
+<p align="center"><sub>Today at a glance, with a year of activity below it. The pairing code lives bottom-left.</sub></p>
+
+### Insights, written locally
+
+Ask a question about your own data, or generate a **Weekly Portrait**, **Find Patterns**, or a
+**Monthly Deep Dive**. The model reads your entries from the local database and runs on your GPU — nothing is
+uploaded, and the app works exactly the same with the network off.
+
+It is written to be specific rather than reassuring: it cites the actual figures, says plainly when
+a day went badly instead of smoothing it over, points out one connection worth your attention, and
+ends with a single concrete thing to try.
+
+<p align="center">
+  <img src="docs/images/desktop-insights.png" alt="The Insights page showing an AI-written weekly portrait generated from the local database" width="90%">
+</p>
+<p align="center"><sub>A weekly portrait written by Qwen3-4B on-device — here it ties a 180 ml water
+day to the tiredness logged that evening, and a drop in energy to a short night's sleep.</sub></p>
+
+---
+
+## Modules
+
+| | Module | What you log |
+|---|---|---|
+| 🏠 | **Dashboard** | Today at a glance: progress against each goal, plus streaks |
+| 💧 | **Water** | Hydration — drag the bottle to drink; it empties as you go |
+| 🥪 | **Food** | Meals and snacks with time, description and rating |
+| 🌙 | **Sleep** | Bed/wake times, duration, and a sleep-quality bar |
+| 🌻 | **Emotions** | Mood through the day, drawn as an arc from morning to night |
+| 💚 | **Health** | Symptoms, medication, weight, general notes |
+| 🚽 | **Bathroom** | Bathroom visits — for tracking a gut or urinary condition |
+| 🩸 | **Cycle** | Menstrual cycle with phase prediction |
+| ✅ | **Chores** | Recurring household tasks from reusable templates |
+| 🎨 | **Hobbies** | Time per hobby, shown as a bowl filling with origami cranes |
+| 💡 | **Ideas** | Quick capture for thoughts worth keeping |
+| 💬 | **Journal** | Free-text diary entries tagged with people you saw |
+| ⚠️ | **Bad Habits** | The things you're cutting down on — counted, not judged |
+| 🧠 | **Insights** | AI-written weekly summaries · *desktop only* |
+
+## Features
+
+**Sync** — mDNS discovery, end-to-end encrypted over WebSocket on port 9847 (ephemeral ECDH +
+AES-256-GCM) · single-code device pairing, no shared password · per-device pairing management —
+remove one device without touching the rest, or **Forget all devices** to revoke every paired
+phone at once · incremental transfers · manual IP fallback when multicast is blocked.
+
+**On the phone** — hydration, meal, evening check-in and refill reminders · weekly trend charts ·
+unit conversion · a small celebration when you hit a goal · earlier ideas grouped by day, not just
+today's.
+
+**On the desktop** — offline AI insights via `node-llama-cpp` · a 52-week calendar heatmap · a
+chronological timeline of the day across every category, quick-filterable by 9 of the 12 · a
+*manage people* panel that deletes a person from the journal's suggestion list, and keeps them
+deleted on every synced device.
+
+**Everywhere** — per-category streaks · daily goals as `X/Y` progress · one-tap quick buttons for
+routine amounts · star ratings, sliders and tag input with recall · a consistent pastel colour
+system per category · split sleep logging — save a bedtime in the evening, complete the same night
+with your wake-up in the morning · entries encrypted at rest on both platforms.
+
+**Installing and updating** — a new Setup installs over the old one and keeps your data; the desktop
+app snapshots its database on the first launch after any version change and keeps the last five
+snapshots.
+
+---
 
 ## Building from source
 
@@ -345,11 +381,59 @@ Further reading: [`docs/PROJECT_SPEC.md`](docs/PROJECT_SPEC.md) is the original 
 document (see the note at its head — the shipped app diverges from it), and `docs/demo/` holds two
 standalone HTML prototypes that predate the implementation.
 
+## Development
+
+```bat
+cd windows
+pnpm dev          :: run the desktop app against the electron-vite dev server
+pnpm build        :: bundle main, preload and renderer
+pnpm test         :: the Jest suites under windows/test/
+
+cd ..\android
+gradlew.bat test            :: JUnit unit tests
+gradlew.bat assembleDebug   :: build the phone APK
+```
+
+There is no end-to-end or instrumentation suite yet, so a change to sync is only really tested by
+pairing a device and watching entries land on both sides.
+
+## Documentation
+
+- [CHANGELOG.md](CHANGELOG.md) — every release, with the root cause behind each fix.
+- [SECURITY.md](SECURITY.md) — the threat model and every accepted residual risk, in plain words.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to propose a change and what a PR has to prove.
+- [docs/signing-guide.md](docs/signing-guide.md) — building a release-signed phone app.
+- [docs/health_guidelines/](docs/health_guidelines/) — where the default daily goals come from.
+- [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) — the original pre-1.0 design document; the shipped
+  app diverges from it, as the note at its head explains.
+- [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md) — every bundled component and its licence.
+
 ## Contributing
 
 Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The short version: open an issue
 first, build both halves, and if you touched sync, actually pair a device and confirm entries land
 on both sides.
+
+## Credits
+
+- **[Qwen3-4B-Instruct-2507](https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF)**
+  — Alibaba Cloud, **Apache License 2.0**; the GGUF quantisation is by lmstudio-community. The
+  weights are **not** stored in this repository: the installer downloads them from Hugging Face and
+  verifies a pinned SHA-256 before the app will load them.
+- **[node-llama-cpp](https://github.com/withcatai/node-llama-cpp)** — MIT. Runs the model locally,
+  on the GPU where one is available.
+- **[Nunito](https://fonts.google.com/specimen/Nunito)** by Vernon Adams, Cyreal and Jacques Le
+  Bailly — **SIL Open Font License 1.1**, vendored under
+  `windows/src/renderer/src/assets/fonts/` so the app never requests a font over the network.
+- **[better-sqlite3-multiple-ciphers](https://github.com/m4heshd/better-sqlite3-multiple-ciphers)** —
+  MIT, bundling SQLite3MultipleCiphers; encrypts the desktop database.
+- **[SQLCipher for Android](https://www.zetetic.net/sqlcipher/)** — Zetetic, SQLCipher Community
+  Edition licence (BSD-style); encrypts the phone database.
+- **Microsoft Visual C++ Redistributable** — bundled in the installer under Microsoft's
+  redistributable terms.
+
+The full dependency inventory, generated from the lockfiles, is in
+[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 
 ## Downloads
 
@@ -409,3 +493,8 @@ peer still speaking the old plaintext protocol gets a tombstone reply and the co
 before any row moves.
 
 </details>
+
+---
+
+**Wellness Companion** — twelve categories, two apps, one pairing code. The most personal record
+you will ever keep, on hardware you already own.
