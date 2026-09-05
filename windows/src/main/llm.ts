@@ -17,6 +17,9 @@ const MODEL_FILE = 'Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gg
 function getModelPath(): string {
   // Check multiple candidate locations (AppData first — survives upgrades)
   const candidates = [
+    // Override: WELLNESS_MODEL_PATH — dev machines keep one copy of every model
+    // under C:\Models.
+    ...(process.env.WELLNESS_MODEL_PATH ? [process.env.WELLNESS_MODEL_PATH] : []),
     // Primary: %LOCALAPPDATA%\wellness-companion\model\ — where the installer
     // (installer\setup_model.ps1) puts it. Deliberately NOT userData: that
     // resolves to %APPDATA% (Roaming) on Windows, and a 2.5 GB model must not
