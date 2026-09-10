@@ -49,3 +49,7 @@ installer/app-version.txt
 
 # --- TypeScript incremental build info ---
 *.tsbuildinfo
+
+# Internal working docs (agent plans, specs, analyses) - never published
+docs/superpowers/
+docs/analyses/
