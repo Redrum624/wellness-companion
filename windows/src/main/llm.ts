@@ -18,7 +18,7 @@ function getModelPath(): string {
   // Check multiple candidate locations (AppData first — survives upgrades)
   const candidates = [
     // Override: WELLNESS_MODEL_PATH — dev machines keep one copy of every model
-    // under C:\Models.
+    // under C:\Dev\models.
     ...(process.env.WELLNESS_MODEL_PATH ? [process.env.WELLNESS_MODEL_PATH] : []),
     // Primary: %LOCALAPPDATA%\wellness-companion\model\ — where the installer
     // (installer\setup_model.ps1) puts it. Deliberately NOT userData: that
