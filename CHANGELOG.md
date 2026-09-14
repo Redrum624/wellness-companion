@@ -2,6 +2,30 @@
 
 All notable changes to Wellness Companion are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **The installer build required the clone to sit near the drive root.** Cause:
+  `wellness_setup.iss` resolves every `[Files] Source` through the script's own directory and
+  defines `RepoRoot` as `installer\..`, so each source path is the clone root plus 13 characters
+  plus up to ~150 characters of `dist\win-unpacked\resources\app.asar.unpacked\node_modules\...`
+  nesting, 200 characters below the clone root at its longest. ISCC is not manifested for long
+  paths, so past MAX_PATH (260) it aborted partway through compression with `The system cannot find
+  the path specified`, and `LongPathsEnabled` does not change that. That left a clone-root budget of
+  only ~59 characters, so the README told everyone to clone somewhere short, which is why throwaway
+  copies kept landing at drive roots. Fix: `build_installer.bat` maps the first free drive letter
+  over the repo with `subst` for the ISCC call and releases it the moment ISCC returns, so every
+  path the compiler sees starts ~3 characters from a drive root no matter where the clone lives;
+  the compile's exit code is captured before the teardown because `subst /d` resets `ERRORLEVEL`.
+  Verified by compiling the same tree twice from a 135-character clone root, longest source path
+  289 characters: without the shim ISCC aborts, with it the compile succeeds in 286 s and yields a
+  392,179,190-byte installer. The clone-root budget is now set by `pnpm install` instead, whose
+  `electron-builder install-app-deps` rebuild of `better-sqlite3-multiple-ciphers` reaches 141
+  characters below the root (~118-character budget) and fails with `C1083` beyond it; README.md now
+  documents both limits and no longer asks for the shortest possible root. Affects:
+  `installer/build_installer.bat`, `README.md`.
+
 ## [1.3.1] - 2026-08-17
 
 A maintenance release. The desktop build packages its local model runtime again, the settings

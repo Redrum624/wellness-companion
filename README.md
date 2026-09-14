@@ -312,21 +312,36 @@ snapshots.
   fresh clone never has one. Without either, the Android build stops at `SDK location not found`.
 - **Node.js 18+ and [pnpm](https://pnpm.io/installation)** — use pnpm, not npm. The repo ships
   `pnpm-lock.yaml`, and `npm install` both ignores it and fails on Python 3.12+ (npm's bundled
-  node-gyp 9 imports `distutils`, removed from the standard library in 3.12). pnpm installs a
-  prebuilt `better-sqlite3` and never invokes node-gyp.
+  node-gyp 9 imports `distutils`, removed from the standard library in 3.12). pnpm resolves the
+  lockfile correctly, but its `postinstall` still runs `electron-builder install-app-deps`, which
+  rebuilds `better-sqlite3-multiple-ciphers` for Electron's ABI through node-gyp and MSBuild.
 - **[Inno Setup 6](https://jrsoftware.org/isdl.php)** — compiles the installer.
 - **Python 3** — required; the build flattens this README into the shipped `README.txt`. Pillow is
   needed only to regenerate `installer/icon/wellness.ico`, which is already committed.
-- **A C++ toolchain** (Visual Studio Build Tools, "Desktop development with C++") — only if a native
-  dependency has no prebuilt binary for your platform. The normal path uses prebuilds.
+- **A C++ toolchain** (Visual Studio Build Tools, "Desktop development with C++") — needed in
+  practice, not just as a fallback: on a fresh clone `pnpm install`'s `postinstall` rebuilt
+  `better-sqlite3-multiple-ciphers` with MSBuild, no prebuilt matching Electron 43's ABI being
+  available.
 - **Windows SDK** (optional) — `signtool.exe` for Authenticode signing. Without it the build
   succeeds and the binaries are simply unsigned.
 
-**Clone somewhere short**, e.g. `C:\dev\wellness-companion`. Electron's output nests `node_modules`
-deep inside `dist\win-unpacked\resources\app.asar.unpacked\`, and Inno Setup is not manifested for
-long paths — from a deeply-nested clone the installer step aborts partway with `The system cannot
-find the path specified`. Enabling `LongPathsEnabled` does **not** help. Measured: a 120-character
-clone root produced 290-character paths and failed; the same build at `C:\wcv` succeeded.
+**Clone into a normal project directory** — `C:\dev\wellness-companion` is fine, and a drive root
+is **not** required. Two steps here are bounded by Windows' 260-character `MAX_PATH`, and enabling
+`LongPathsEnabled` lifts neither:
+
+- `pnpm install` runs `electron-builder install-app-deps`, which rebuilds
+  `better-sqlite3-multiple-ciphers` against Electron's ABI with MSBuild. Its build intermediates
+  reach 141 characters below the clone root, so the root must stay under roughly 118 characters or
+  the compile fails with `C1083: Cannot open compiler generated file`.
+- The Inno Setup compile used to be the tighter of the two. `wellness_setup.iss` resolves every
+  source through `installer\..`, and `dist\win-unpacked\resources\app.asar.unpacked\node_modules\`
+  reaches 200 characters below the root — a budget of only ~59 characters, which is why a short
+  clone root used to be mandatory and why throwaway copies ended up at drive roots.
+  `build_installer.bat` now maps a free drive letter over the repo with `subst` for the compile and
+  releases it as soon as ISCC returns, so Inno Setup no longer constrains where the clone lives.
+
+Measured: a 34-character clone root builds end to end. A 135-character root still fails, but now in
+the `pnpm install` rebuild above rather than in the installer step.
 
 **Downloads the build fetches for you:** `vc_redist.x64.exe` (~25 MB, from `aka.ms`), embedded in
 the installer. For an `offline` build only, the 2.5 GB GGUF model must already be at

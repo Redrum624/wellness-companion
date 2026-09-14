@@ -282,8 +282,39 @@ if not exist "%ISCC%" (
     echo           Install Inno Setup 6 from https://jrsoftware.org/isdl.php
     exit /b 1
 )
-"%ISCC%" /DAppVersion=%APPVER% %ISCC_DEFINES% "%ISS%"
-if errorlevel 1 (
+:: --- Short-path shim: Inno Setup is not manifested for long paths -----------
+::  ISCC resolves every [Files] Source through the .iss's own directory, and
+::  RepoRoot in wellness_setup.iss is "installer\..", so every source path is
+::  the clone root + 13 characters + up to ~150 characters of
+::  dist\win-unpacked\resources\app.asar.unpacked\node_modules\... nesting.
+::  Past MAX_PATH (260) the compile dies partway with "The system cannot find
+::  the path specified" - which is why this build used to demand a short clone
+::  root. Mapping a free drive letter over the repo for the compile keeps every
+::  path ISCC sees ~3 characters from a drive root, so the clone can live
+::  anywhere; the mapping is released the moment ISCC returns.
+set "SUBST_DRIVE="
+for %%L in (Z Y X W V U T S R Q P O N M L K J I H G F E) do (
+    if not defined SUBST_DRIVE if not exist "%%L:\" (
+        subst %%L: "%REPO_ROOT%" >nul 2>&1
+        if not errorlevel 1 set "SUBST_DRIVE=%%L:"
+    )
+)
+set "ISS_SHORT=%ISS%"
+if defined SUBST_DRIVE (
+    set "ISS_SHORT=!SUBST_DRIVE!\installer\wellness_setup.iss"
+) else (
+    echo   [WARN] No free drive letter for the short-path shim - compiling
+    echo          through the full path. If this clone sits deep, ISCC can fail
+    echo          with "The system cannot find the path specified"; free a
+    echo          drive letter or move the clone nearer the drive root.
+)
+"%ISCC%" /DAppVersion=%APPVER% %ISCC_DEFINES% "!ISS_SHORT!"
+set "ISCC_RC=!ERRORLEVEL!"
+:: Release the mapping before the error branch below, so a failed compile
+:: never leaves a stray drive letter behind. subst /d resets ERRORLEVEL,
+:: which is why the compile's exit code is captured first.
+if defined SUBST_DRIVE subst !SUBST_DRIVE! /d >nul 2>&1
+if not "!ISCC_RC!"=="0" (
     echo   [ERROR] Inno Setup compile failed.
     exit /b 1
 )
