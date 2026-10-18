@@ -433,6 +433,13 @@
       "by_release": {
         "v1.3.1": 2
       }
+    },
+    {
+      "date": "2026-10-18",
+      "total": 2,
+      "by_release": {
+        "v1.3.1": 2
+      }
     }
   ],
   "latest_release": "v1.3.1"
