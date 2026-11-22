@@ -678,6 +678,13 @@
       "by_release": {
         "v1.3.1": 4
       }
+    },
+    {
+      "date": "2026-11-22",
+      "total": 4,
+      "by_release": {
+        "v1.3.1": 4
+      }
     }
   ],
   "latest_release": "v1.3.1"
